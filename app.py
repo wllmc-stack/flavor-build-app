@@ -1,6 +1,7 @@
 import streamlit as st
-import pandas as pd
+import pd as pd
 import time
+import random
 
 # --- 1. USER DATABASE ---
 USER_DB = {
@@ -39,45 +40,41 @@ if not st.session_state.authenticated:
                 st.session_state.user_name = user
                 st.rerun()
             else:
-                st.error("Incorrect password. Please try again.")
+                st.error("Incorrect password.")
     st.stop() 
 
 # --- SIDEBAR ---
 with st.sidebar:
-    st.success(f"✅ Logged in as: **{st.session_state.user_name}**")
+    st.success(f"✅ User: **{st.session_state.user_name}**")
     if st.button("Logout"):
         st.session_state.authenticated = False
-        st.session_state.user_name = ""
         st.rerun()
     
     st.divider()
     st.header("📂 Data Center")
-    inv_file = st.file_uploader("Upload Master Inventory (CSV)", type=['csv'])
+    inv_file = st.file_uploader("Upload Inventory (CSV)", type=['csv'])
     if inv_file:
         st.session_state.inventory_df = pd.read_csv(inv_file, dtype={'Product ID': str, 'Lot ID': str}, encoding='latin1')
-        st.success("Inventory Loaded")
 
-    sch_file = st.file_uploader("Upload Daily Schedule (Excel)", type=['xlsx'])
+    sch_file = st.file_uploader("Upload Schedule (Excel)", type=['xlsx'])
     if sch_file:
         st.session_state.schedule_df = pd.ExcelFile(sch_file)
-        st.success("Schedule Loaded")
 
-    # EXPORT SECTION
     if st.session_state.permanent_history:
         st.divider()
         st.header("📥 Export Data")
         export_df = pd.DataFrame(st.session_state.permanent_history)
         
-        # HEADERS UPDATED: Build ID (no *) and column order
+        # HEADERS UPDATED: "Product ID to produce" 
         final_cols = [
-            'Build ID', 'Description', 'Status', 'Product ID', 'Lot ID to produce', 
+            'Build ID', 'Description', 'Status', 'Product ID to produce', 'Lot ID to produce', 
             'Quantity to produce', 'Start date estimated', 'Start date actual', 
             'Complete date estimated', 'Complete date actual', 'Sublocation', 
             'Consume location', 'Consume sublocation', 'Consume product ID', 'Consume quantity'
         ]
         
         st.download_button(
-            label="📊 DOWNLOAD FORMATTED CSV",
+            label="📊 DOWNLOAD CSV",
             data=export_df[final_cols].to_csv(index=False).encode('latin1'),
             file_name=f"flavor_build_{time.strftime('%Y%m%d')}.csv",
             mime="text/csv",
@@ -100,8 +97,8 @@ else:
     relevant_tabs = [t for t in all_tabs if t in target_tabs]
     
     selected_tab = st.selectbox("Select Bottling Line", relevant_tabs)
-    
     df_raw = st.session_state.schedule_df.parse(selected_tab)
+    
     name_col = next((c for c in df_raw.columns if "Name" in str(c)), None)
     qty_col = next((c for c in df_raw.columns if "Qty" in str(c)), None)
 
@@ -120,38 +117,37 @@ else:
             
             full_name = str(batch_data['Name']).strip()
             full_code = full_name.split()[0]
-            units_to_make = int(batch_data['Qty'])
+            planned_qty = int(batch_data['Qty'])
             
-            size_prefix = full_code[0]
-            if size_prefix == '1': oz_per, label = 0.33814, "10ml"
-            elif size_prefix == '3': oz_per, label = 1.01442, "30ml"
-            elif size_prefix == '4': oz_per, label = 4.0, "4oz"
+            # Conv math for Operator only
+            prefix = full_code[0]
+            if prefix == '1': oz_per, label = 0.33814, "10ml"
+            elif prefix == '3': oz_per, label = 1.01442, "30ml"
+            elif prefix == '4': oz_per, label = 4.0, "4oz"
             else: oz_per, label = 1.0, "Unknown"
 
-            target_oz = round(units_to_make * oz_per, 4)
+            target_oz = round(planned_qty * oz_per, 4)
             req_base_id = full_code[1:] if len(full_code) >= 5 else full_code
             
-            # --- DASHBOARD ---
             st.divider()
             c1, c2, c3 = st.columns(3)
-            c1.metric("📦 Units to Make", f"{units_to_make} bottles")
+            c1.metric("📦 Planned Units", f"{planned_qty}")
             c2.metric("📏 Unit Size", label)
-            c3.metric("🎯 Total Target", f"{target_oz} oz")
+            c3.metric("🎯 Target Oz", f"{target_oz} oz")
 
-            st.divider()
             current_oz = sum(item['Consume quantity'] for item in st.session_state.current_build)
             remaining_oz = round(target_oz - current_oz, 4)
             
             cl, cr = st.columns(2)
             cl.metric("⚖️ Remaining", f"{remaining_oz} oz")
-            cr.metric("🧪 Already Logged", f"{current_oz} oz")
+            cr.metric("🧪 Logged", f"{current_oz} oz")
 
             st.warning(f"🛡️ **Safety Lock:** Scan Base ID: **{req_base_id}**")
             sku_scan = st.text_input("Scan Barcode").strip()
 
             if sku_scan:
                 if sku_scan != req_base_id:
-                    st.error(f"❌ INCORRECT INGREDIENT! Expected **{req_base_id}**.")
+                    st.error(f"❌ Incorrect ID: Expected **{req_base_id}**.")
                 else:
                     matches = st.session_state.inventory_df[st.session_state.inventory_df['Product ID'] == sku_scan]
                     if not matches.empty:
@@ -160,29 +156,27 @@ else:
                             st.success("✅ Validated")
                             sel_lot = st.selectbox("Confirm Lot ID", matches['Lot ID'].unique())
                             active = matches[matches['Lot ID'] == sel_lot].iloc[0]
-                            w1, w2 = st.columns(2)
-                            w_before = w1.number_input("Weight BEFORE (oz)", value=float(active['Quantity']))
-                            w_after = w2.number_input("Weight AFTER (oz)", value=float(active['Quantity']))
+                            w_before = st.number_input("Weight BEFORE", value=float(active['Quantity']))
+                            w_after = st.number_input("Weight AFTER", value=float(active['Quantity']))
                             
-                            if st.button("➕ Log Bottle to Build", use_container_width=True):
+                            if st.button("➕ Log Bottle", use_container_width=True):
                                 if not st.session_state.current_build:
-                                    st.session_state.new_build_id = int(time.time())
-                                
-                                user_stamp = f"{full_name} - Logged by: {st.session_state.user_name}"
+                                    # RANDOM 6 DIGIT ID
+                                    st.session_state.new_build_id = random.randint(100000, 999999)
                                 
                                 st.session_state.current_build.append({
-                                    'Build ID': st.session_state.new_build_id, # Header cleaned
-                                    'Description': user_stamp,
+                                    'Build ID': st.session_state.new_build_id,
+                                    'Description': f"{full_name} - {st.session_state.user_name}",
                                     'Status': 'Completed',
-                                    'Product ID': full_code,
+                                    'Product ID to produce': full_code, # Updated Header
                                     'Lot ID to produce': '',
-                                    'Quantity to produce': units_to_make,
+                                    'Quantity to produce': 0, # Placeholder, filled at finalization
                                     'Start date estimated': time.strftime('%m/%d/%Y'),
                                     'Start date actual': time.strftime('%m/%d/%Y'),
                                     'Complete date estimated': time.strftime('%m/%d/%Y'),
                                     'Complete date actual': time.strftime('%m/%d/%Y'),
                                     'Sublocation': 'Bottling',
-                                    'Consume location': 'Bottling', # Updated per request
+                                    'Consume location': 'Bottling',
                                     'Consume sublocation': 'Bottling',
                                     'Consume product ID': req_base_id,
                                     'Consume quantity': round(w_before - w_after, 4)
@@ -190,19 +184,23 @@ else:
                                 st.rerun()
                         with col_i:
                             st.dataframe(matches[['Lot ID', 'Quantity']], hide_index=True)
-    else:
-        st.error("Columns 'Name' or 'Qty' not found in selected sheet.")
 
-# --- REVIEW & HISTORY ---
+# --- REVIEW & FINALIZATION ---
 if st.session_state.current_build:
     st.divider()
-    st.subheader("📋 Current Build Progress")
-    review_df = pd.DataFrame(st.session_state.current_build)
-    st.table(review_df[['Build ID', 'Consume product ID', 'Consume quantity']])
+    st.subheader("📋 Finalize Build")
     
-    if st.button("✅ FINALIZE BATCH", type="primary", use_container_width=True):
+    # NEW: Manual Entry for Actual Quantity Produced
+    final_units = st.number_input("Actual Units Produced (Final Count)", value=int(st.session_state.current_build[0]['Quantity to produce']) or planned_qty)
+    
+    if st.button("✅ FINALIZE & SAVE BATCH", type="primary", use_container_width=True):
+        # Apply the manual count to all rows in this build
+        for item in st.session_state.current_build:
+            item['Quantity to produce'] = final_units
+            
         st.session_state.permanent_history.extend(st.session_state.current_build)
         st.session_state.current_build = []
+        st.success("Batch Saved to Log!")
         st.rerun()
 
 if st.session_state.permanent_history:
