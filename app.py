@@ -27,7 +27,6 @@ with st.sidebar:
         st.session_state.schedule_df = pd.ExcelFile(sch_file)
         st.success("Schedule Loaded")
 
-    # RESTORED DOWNLOAD BUTTON
     if st.session_state.permanent_history:
         st.divider()
         st.header("📥 Export Data")
@@ -41,7 +40,7 @@ with st.sidebar:
             type="primary"
         )
         
-        if st.button("Clear History", help="This wipes the running log for a fresh start"):
+        if st.button("Clear History"):
             st.session_state.permanent_history = []
             st.rerun()
 
@@ -60,10 +59,7 @@ else:
     else:
         selected_tab = st.selectbox("Select Bottling Line", relevant_tabs)
         
-        # 1. Load the sheet
         df_raw = st.session_state.schedule_df.parse(selected_tab)
-        
-        # 2. HEADER CLEANING
         name_col = next((c for c in df_raw.columns if "Name" in str(c)), None)
         qty_col = next((c for c in df_raw.columns if "Qty" in str(c)), None)
 
@@ -87,14 +83,14 @@ else:
                 
                 required_base_id = full_code[1:] if len(full_code) >= 5 else full_code
                 
-                # --- DASHBOARD ---
+                # --- DASHBOARD (UPDATED TO OZ) ---
                 st.divider()
-                current_total = sum(item['Used'] for item in st.session_state.current_build)
+                current_total = sum(item['Used (oz)'] for item in st.session_state.current_build)
                 remaining = round(target_qty - current_total, 4)
                 
                 c_t, c_s = st.columns(2)
-                c_t.metric("🎯 Target Weight", f"{target_qty}g")
-                c_s.metric("⚖️ Remaining to Pour", f"{remaining}g", delta=f"-{current_total}g")
+                c_t.metric("🎯 Target Weight", f"{target_qty} oz")
+                c_s.metric("⚖️ Remaining to Pour", f"{remaining} oz", delta=f"-{current_total} oz")
 
                 st.warning(f"🛡️ **Safety Lock:** Scan Base ID: **{required_base_id}**")
 
@@ -113,8 +109,8 @@ else:
                                 sel_lot = st.selectbox("Confirm Lot ID", matches['Lot ID'].unique())
                                 active = matches[matches['Lot ID'] == sel_lot].iloc[0]
                                 c1, c2 = st.columns(2)
-                                w_before = c1.number_input("Weight BEFORE", value=float(active['Quantity']))
-                                w_after = c2.number_input("Weight AFTER", value=float(active['Quantity']))
+                                w_before = c1.number_input("Weight BEFORE (oz)", value=float(active['Quantity']))
+                                w_after = c2.number_input("Weight AFTER (oz)", value=float(active['Quantity']))
                                 
                                 if st.button("➕ Log Bottle to Build", use_container_width=True):
                                     st.session_state.current_build.append({
@@ -123,15 +119,15 @@ else:
                                         'Product': selected_batch,
                                         'Base ID': required_base_id,
                                         'Lot ID': sel_lot,
-                                        'Used': round(w_before - w_after, 4),
+                                        'Used (oz)': round(w_before - w_after, 4),
                                         'Time': time.strftime('%H:%M:%S')
                                     })
                                     st.rerun()
                             with col_i:
-                                st.subheader("📚 Lot Options")
+                                st.subheader("📚 Lot Inventory")
                                 st.dataframe(matches[['Lot ID', 'Quantity']], hide_index=True)
                         else:
-                            st.error(f"Base ID {required_base_id} found in schedule, but not found in Master Inventory.")
+                            st.error(f"Base ID {required_base_id} not found in Master Inventory.")
         else:
             st.error(f"Couldn't find 'Name' or 'Qty' columns.")
 
