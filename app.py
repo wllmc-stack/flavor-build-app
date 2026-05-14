@@ -38,35 +38,42 @@ else:
     relevant_tabs = [t for t in all_tabs if t in target_tabs]
     
     if not relevant_tabs:
-        st.error(f"Could not find tabs: '10 List', '30 List', or '4oz List'. Found: {all_tabs}")
+        st.error(f"Target tabs not found. Found: {all_tabs}")
     else:
         selected_tab = st.selectbox("Select Bottling Line", relevant_tabs)
         
-        # Load and clean headers
-        current_sheet = st.session_state.schedule_df.parse(selected_tab)
-        current_sheet.columns = [str(c).strip() for c in current_sheet.columns]
+        # Load the sheet
+        df_raw = st.session_state.schedule_df.parse(selected_tab)
         
-        if 'Name' not in current_sheet.columns or 'Qty' not in current_sheet.columns:
-            st.error(f"Sheet '{selected_tab}' is missing 'Name' or 'Qty' columns.")
-        else:
-            # Filter Qty > 0 and drop empties
-            current_sheet['Qty'] = pd.to_numeric(current_sheet['Qty'], errors='coerce')
-            current_sheet = current_sheet.dropna(subset=['Name', 'Qty'])
-            current_sheet = current_sheet[current_sheet['Qty'] > 0]
+        # --- FIX FOR DUPLICATE QTY COLUMNS ---
+        # This keeps only the FIRST occurrence of a column name
+        df_raw = df_raw.loc[:, ~df_raw.columns.duplicated()]
+        df_raw.columns = [str(c).strip() for c in df_raw.columns]
+        
+        if 'Name' in df_raw.columns and 'Qty' in df_raw.columns:
+            # Clean and Filter
+            df_clean = df_raw.dropna(subset=['Name']).copy()
+            df_clean['Qty'] = pd.to_numeric(df_clean['Qty'], errors='coerce').fillna(0)
             
-            batch_options = current_sheet['Name'].unique()
+            # ONLY SHOW ROWS WITH QUANTITY
+            df_final = df_clean[df_clean['Qty'] > 0].copy()
+            
+            batch_options = df_final['Name'].unique()
             
             if len(batch_options) == 0:
-                st.warning(f"No active batches found on {selected_tab}.")
+                st.warning(f"No active batches found on {selected_tab} (Qty is 0 for all items).")
             else:
                 selected_batch = st.selectbox("Select Assigned Batch", batch_options)
                 
                 # Fetch Data
-                batch_data = current_sheet[current_sheet['Name'] == selected_batch].iloc[0]
-                full_code = str(batch_data['Name']).split()[0]
+                batch_data = df_final[df_final['Name'] == selected_batch].iloc[0]
+                name_str = str(batch_data['Name']).strip()
+                
+                # Logic to grab the 5-digit code
+                full_code = name_str.split()[0]
                 target_qty = float(batch_data['Qty'])
                 
-                # ID Stripping Logic: 10054 -> 0054
+                # Strip first digit: 34107 -> 4107
                 required_base_id = full_code[1:] if len(full_code) >= 5 else full_code
                 
                 # --- DASHBOARD ---
@@ -78,13 +85,13 @@ else:
                 c_t.metric("🎯 Target Weight", f"{target_qty}g")
                 c_s.metric("⚖️ Remaining to Pour", f"{remaining}g", delta=f"-{current_total}g")
 
-                st.warning(f"🛡️ **Safety Lock Active:** Expected Base ID: **{required_base_id}**")
+                st.warning(f"🛡️ **Safety Lock:** Scan Base ID: **{required_base_id}**")
 
-                sku_scan = st.text_input("Scan Ingredient Barcode").strip()
+                sku_scan = st.text_input("Scan Barcode").strip()
 
                 if sku_scan:
                     if sku_scan != required_base_id:
-                        st.error(f"❌ WRONG INGREDIENT! Expected **{required_base_id}**, scanned **{sku_scan}**.")
+                        st.error(f"❌ INCORRECT INGREDIENT! Expected **{required_base_id}**, but scanned **{sku_scan}**.")
                     else:
                         matches = st.session_state.inventory_df[st.session_state.inventory_df['Product ID'] == sku_scan]
                         
@@ -102,12 +109,10 @@ else:
                                 if st.button("➕ Log Bottle to Build", use_container_width=True):
                                     st.session_state.current_build.append({
                                         'Line': selected_tab,
-                                        'Batch Code': full_code,
-                                        'Product Name': selected_batch,
+                                        'Batch': full_code,
+                                        'Product': selected_batch,
                                         'Base ID': required_base_id,
                                         'Lot ID': sel_lot,
-                                        'Start': w_start,
-                                        'End': w_end,
                                         'Used': round(w_start - w_end, 4),
                                         'Time': time.strftime('%H:%M:%S')
                                     })
@@ -116,6 +121,8 @@ else:
                             with col_info:
                                 st.subheader("📚 Lot Options")
                                 st.dataframe(matches[['Lot ID', 'Quantity']], hide_index=True)
+        else:
+            st.error(f"Sheet '{selected_tab}' must have 'Name' and 'Qty' headers. Found: {list(df_raw.columns)}")
 
     # --- REVIEW & HISTORY ---
     if st.session_state.current_build:
