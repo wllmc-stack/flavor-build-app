@@ -64,7 +64,6 @@ with st.sidebar:
         st.header("📥 Export Data")
         export_df = pd.DataFrame(st.session_state.permanent_history)
         
-        # HEADERS UPDATED: Added 'Notes/Variance'
         final_cols = [
             'Build ID', 'Description', 'Status', 'Product ID to produce', 'Lot ID to produce', 
             'Quantity to produce', 'Start date estimated', 'Start date actual', 
@@ -72,14 +71,8 @@ with st.sidebar:
             'Consume lot id', 'Consume sublocation', 'Consume product ID', 'Consume quantity', 'Notes/Variance'
         ]
         
-        st.download_button(
-            label="📊 DOWNLOAD CSV",
-            data=export_df[final_cols].to_csv(index=False).encode('latin1'),
-            file_name=f"flavor_build_{time.strftime('%Y%m%d')}.csv",
-            mime="text/csv",
-            use_container_width=True,
-            type="primary"
-        )
+        st.download_button(label="📊 DOWNLOAD CSV", data=export_df[final_cols].to_csv(index=False).encode('latin1'),
+            file_name=f"flavor_build_{time.strftime('%Y%m%d')}.csv", mime="text/csv", use_container_width=True, type="primary")
         
         if st.button("Clear History"):
             st.session_state.permanent_history = []
@@ -152,8 +145,6 @@ else:
                     col_m, col_i = st.columns([2, 1])
                     with col_m:
                         st.success("✅ Validated")
-                        
-                        # --- LOT SELECTION / MANUAL OVERRIDE ---
                         lot_options = ["--- Select Lot ---"] + list(matches['Lot ID'].unique()) + ["MANUAL ENTRY"]
                         sel_lot = st.selectbox("Confirm Lot ID", lot_options)
                         
@@ -167,54 +158,83 @@ else:
                             active = matches[matches['Lot ID'] == sel_lot].iloc[0]
                             initial_w = float(active['Quantity'])
 
-                        # --- SIDE BY SIDE WEIGHTS ---
                         w_col1, w_col2 = st.columns(2)
                         w_before = w_col1.number_input("Weight BEFORE", value=initial_w)
                         w_after = w_col2.number_input("Weight AFTER", value=0.0)
                         
                         actual_used = round(w_before - w_after, 4)
-                        
+
+                        # --- LOGIC FOR LOGGING BOTTLE ---
                         if st.button("➕ Log Bottle", use_container_width=True):
-                            final_lot = manual_lot if sel_lot == "MANUAL ENTRY" else sel_lot
-                            notes = []
-                            
-                            # Validations
                             if sel_lot == "--- Select Lot ---":
                                 st.error("Please select a valid Lot ID.")
                             elif sel_lot == "MANUAL ENTRY" and not manual_lot:
                                 st.error("Manual entry requires a Lot Number.")
                             else:
-                                # 1. Manual Entry Note
-                                if sel_lot == "MANUAL ENTRY":
-                                    notes.append("Manual Lot Entry")
+                                # Prepare alerts
+                                alerts = []
+                                if sel_lot == "MANUAL ENTRY": alerts.append("MANUAL LOT ENTRY")
+                                if actual_used > remaining_oz: alerts.append(f"OVER-POUR ({actual_used} oz)")
                                 
-                                # 2. Variance Check (Example: if pour > 10% of total target or over remaining)
-                                if actual_used > remaining_oz:
-                                    notes.append(f"Over-pour: Used {actual_used} vs {remaining_oz} remaining")
+                                # Store for confirmation if alerts exist
+                                st.session_state.temp_entry = {
+                                    'final_lot': manual_lot if sel_lot == "MANUAL ENTRY" else sel_lot,
+                                    'actual_used': actual_used,
+                                    'notes': " | ".join(alerts),
+                                    'full_code': full_code,
+                                    'req_base_id': req_base_id,
+                                    'size_label': size_label
+                                }
                                 
-                                # Process the Log
-                                if not st.session_state.current_build:
-                                    st.session_state.new_build_id = random.randint(100000, 999999)
-                                
-                                st.session_state.current_build.append({
-                                    'Build ID': st.session_state.new_build_id,
-                                    'Description': f"{st.session_state.user_name} {size_label}",
-                                    'Status': 'Completed',
-                                    'Product ID to produce': f"B{full_code}",
-                                    'Lot ID to produce': '',
-                                    'Quantity to produce': 0, 
-                                    'Start date estimated': time.strftime('%m/%d/%Y'),
-                                    'Start date actual': time.strftime('%m/%d/%Y'),
-                                    'Complete date estimated': time.strftime('%m/%d/%Y'),
-                                    'Complete date actual': time.strftime('%m/%d/%Y'),
-                                    'Sublocation': 'Bottling',
-                                    'Consume lot id': final_lot,
-                                    'Consume sublocation': 'Bottling',
-                                    'Consume product ID': req_base_id,
-                                    'Consume quantity': actual_used,
-                                    'Notes/Variance': " | ".join(notes) if notes else ""
-                                })
-                                st.rerun()
+                                if alerts:
+                                    st.session_state.show_confirm = True
+                                else:
+                                    # No alerts, log immediately
+                                    if not st.session_state.current_build:
+                                        st.session_state.new_build_id = random.randint(100000, 999999)
+                                    
+                                    st.session_state.current_build.append({
+                                        'Build ID': st.session_state.new_build_id,
+                                        'Description': f"{st.session_state.user_name} {size_label}",
+                                        'Status': 'Completed',
+                                        'Product ID to produce': f"B{full_code}",
+                                        'Lot ID to produce': '', 'Quantity to produce': 0, 
+                                        'Start date estimated': time.strftime('%m/%d/%Y'), 'Start date actual': time.strftime('%m/%d/%Y'),
+                                        'Complete date estimated': time.strftime('%m/%d/%Y'), 'Complete date actual': time.strftime('%m/%d/%Y'),
+                                        'Sublocation': 'Bottling', 'Consume lot id': st.session_state.temp_entry['final_lot'],
+                                        'Consume sublocation': 'Bottling', 'Consume product ID': req_base_id,
+                                        'Consume quantity': actual_used, 'Notes/Variance': ""
+                                    })
+                                    st.rerun()
+
+                        # --- POP-UP VERIFICATION WINDOW ---
+                        if st.session_state.get('show_confirm', False):
+                            st.divider()
+                            with st.container(border=True):
+                                st.error(f"⚠️ **ATTENTION: {st.session_state.temp_entry['notes']}**")
+                                st.write("Please verify these details are correct before logging.")
+                                c_y, c_n = st.columns(2)
+                                if c_y.button("✅ CONFIRM & LOG", use_container_width=True):
+                                    if not st.session_state.current_build:
+                                        st.session_state.new_build_id = random.randint(100000, 999999)
+                                    
+                                    e = st.session_state.temp_entry
+                                    st.session_state.current_build.append({
+                                        'Build ID': st.session_state.new_build_id,
+                                        'Description': f"{st.session_state.user_name} {e['size_label']}",
+                                        'Status': 'Completed', 'Product ID to produce': f"B{e['full_code']}",
+                                        'Lot ID to produce': '', 'Quantity to produce': 0, 
+                                        'Start date estimated': time.strftime('%m/%d/%Y'), 'Start date actual': time.strftime('%m/%d/%Y'),
+                                        'Complete date estimated': time.strftime('%m/%d/%Y'), 'Complete date actual': time.strftime('%m/%d/%Y'),
+                                        'Sublocation': 'Bottling', 'Consume lot id': e['final_lot'],
+                                        'Consume sublocation': 'Bottling', 'Consume product ID': e['req_base_id'],
+                                        'Consume quantity': e['actual_used'], 'Notes/Variance': e['notes']
+                                    })
+                                    st.session_state.show_confirm = False
+                                    st.rerun()
+                                if c_n.button("❌ CANCEL", use_container_width=True):
+                                    st.session_state.show_confirm = False
+                                    st.rerun()
 
                     with col_i:
                         st.subheader("📚 Known Inventory")
