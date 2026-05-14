@@ -42,7 +42,7 @@ if not st.session_state.authenticated:
                 st.error("Incorrect password. Please try again.")
     st.stop() 
 
-# --- SIDEBAR (Download Button Lives Here) ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.success(f"✅ Logged in as: **{st.session_state.user_name}**")
     if st.button("Logout"):
@@ -62,13 +62,15 @@ with st.sidebar:
         st.session_state.schedule_df = pd.ExcelFile(sch_file)
         st.success("Schedule Loaded")
 
-    # RESTORED DOWNLOAD SECTION
+    # EXPORT SECTION
     if st.session_state.permanent_history:
         st.divider()
         st.header("📥 Export Data")
         export_df = pd.DataFrame(st.session_state.permanent_history)
+        
+        # HEADERS UPDATED: Build ID (no *) and column order
         final_cols = [
-            'Build ID*', 'Description', 'Status', 'Product ID', 'Lot ID to produce', 
+            'Build ID', 'Description', 'Status', 'Product ID', 'Lot ID to produce', 
             'Quantity to produce', 'Start date estimated', 'Start date actual', 
             'Complete date estimated', 'Complete date actual', 'Sublocation', 
             'Consume location', 'Consume sublocation', 'Consume product ID', 'Consume quantity'
@@ -169,7 +171,7 @@ else:
                                 user_stamp = f"{full_name} - Logged by: {st.session_state.user_name}"
                                 
                                 st.session_state.current_build.append({
-                                    'Build ID*': st.session_state.new_build_id,
+                                    'Build ID': st.session_state.new_build_id, # Header cleaned
                                     'Description': user_stamp,
                                     'Status': 'Completed',
                                     'Product ID': full_code,
@@ -180,7 +182,7 @@ else:
                                     'Complete date estimated': time.strftime('%m/%d/%Y'),
                                     'Complete date actual': time.strftime('%m/%d/%Y'),
                                     'Sublocation': 'Bottling',
-                                    'Consume location': 'Warehouse',
+                                    'Consume location': 'Bottling', # Updated per request
                                     'Consume sublocation': 'Bottling',
                                     'Consume product ID': req_base_id,
                                     'Consume quantity': round(w_before - w_after, 4)
@@ -191,13 +193,12 @@ else:
     else:
         st.error("Columns 'Name' or 'Qty' not found in selected sheet.")
 
-# --- REVIEW & HISTORY (ALWAYS VISIBLE BELOW MAIN FLOW) ---
+# --- REVIEW & HISTORY ---
 if st.session_state.current_build:
     st.divider()
     st.subheader("📋 Current Build Progress")
-    # Show only the key columns for review
     review_df = pd.DataFrame(st.session_state.current_build)
-    st.table(review_df[['Build ID*', 'Consume product ID', 'Consume quantity']])
+    st.table(review_df[['Build ID', 'Consume product ID', 'Consume quantity']])
     
     if st.button("✅ FINALIZE BATCH", type="primary", use_container_width=True):
         st.session_state.permanent_history.extend(st.session_state.current_build)
