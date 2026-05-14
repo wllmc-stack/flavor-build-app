@@ -27,6 +27,24 @@ with st.sidebar:
         st.session_state.schedule_df = pd.ExcelFile(sch_file)
         st.success("Schedule Loaded")
 
+    # RESTORED DOWNLOAD BUTTON
+    if st.session_state.permanent_history:
+        st.divider()
+        st.header("📥 Export Data")
+        final_df = pd.DataFrame(st.session_state.permanent_history)
+        st.download_button(
+            label="📊 DOWNLOAD FULL SESSION LOG",
+            data=final_df.to_csv(index=False).encode('latin1'),
+            file_name=f"flavor_build_report_{time.strftime('%Y%m%d_%H%M')}.csv",
+            mime="text/csv",
+            use_container_width=True,
+            type="primary"
+        )
+        
+        if st.button("Clear History", help="This wipes the running log for a fresh start"):
+            st.session_state.permanent_history = []
+            st.rerun()
+
 # --- MAIN INTERFACE ---
 st.title("🧪 Flavor Build")
 
@@ -45,16 +63,13 @@ else:
         # 1. Load the sheet
         df_raw = st.session_state.schedule_df.parse(selected_tab)
         
-        # 2. AGGRESSIVE HEADER CLEANING
+        # 2. HEADER CLEANING
         name_col = next((c for c in df_raw.columns if "Name" in str(c)), None)
         qty_col = next((c for c in df_raw.columns if "Qty" in str(c)), None)
 
         if name_col and qty_col:
-            # Create a clean version with only the two columns we need
             df_clean = df_raw[[name_col, qty_col]].copy()
             df_clean.columns = ['Name', 'Qty']
-            
-            # 3. DATA CLEANING
             df_clean = df_clean.dropna(subset=['Name'])
             df_clean['Qty'] = pd.to_numeric(df_clean['Qty'], errors='coerce').fillna(0)
             df_final = df_clean[df_clean['Qty'] > 0].copy()
@@ -65,13 +80,11 @@ else:
                 st.warning(f"No active batches found on {selected_tab}.")
             else:
                 selected_batch = st.selectbox("Select Assigned Batch", batch_options)
-                
                 batch_data = df_final[df_final['Name'] == selected_batch].iloc[0]
                 name_str = str(batch_data['Name']).strip()
                 full_code = name_str.split()[0]
                 target_qty = float(batch_data['Qty'])
                 
-                # ID Stripping: 34107 -> 4107
                 required_base_id = full_code[1:] if len(full_code) >= 5 else full_code
                 
                 # --- DASHBOARD ---
@@ -94,14 +107,11 @@ else:
                         matches = st.session_state.inventory_df[st.session_state.inventory_df['Product ID'] == sku_scan]
                         
                         if not matches.empty:
-                            # WE DEFINE THE COLUMNS HERE AND USE THEM IMMEDIATELY
                             col_m, col_i = st.columns([2, 1])
-                            
                             with col_m:
                                 st.success("✅ Ingredient Validated")
                                 sel_lot = st.selectbox("Confirm Lot ID", matches['Lot ID'].unique())
                                 active = matches[matches['Lot ID'] == sel_lot].iloc[0]
-                                
                                 c1, c2 = st.columns(2)
                                 w_before = c1.number_input("Weight BEFORE", value=float(active['Quantity']))
                                 w_after = c2.number_input("Weight AFTER", value=float(active['Quantity']))
@@ -117,26 +127,13 @@ else:
                                         'Time': time.strftime('%H:%M:%S')
                                     })
                                     st.rerun()
-                            
                             with col_i:
                                 st.subheader("📚 Lot Options")
                                 st.dataframe(matches[['Lot ID', 'Quantity']], hide_index=True)
                         else:
                             st.error(f"Base ID {required_base_id} found in schedule, but not found in Master Inventory.")
         else:
-            st.error(f"Couldn't find 'Name' or 'Qty' columns. Headers seen: {list(df_raw.columns)}")
+            st.error(f"Couldn't find 'Name' or 'Qty' columns.")
 
     # --- REVIEW & HISTORY ---
-    if st.session_state.current_build:
-        st.divider()
-        st.subheader("📋 Current Build Progress")
-        st.table(pd.DataFrame(st.session_state.current_build))
-        if st.button("✅ FINALIZE BATCH", type="primary", use_container_width=True):
-            st.session_state.permanent_history.extend(st.session_state.current_build)
-            st.session_state.current_build = []
-            st.rerun()
-
-    if st.session_state.permanent_history:
-        st.divider()
-        st.subheader("📜 Running Day Log")
-        st.dataframe(pd.DataFrame(st.session_state.permanent_history), use_container_width=True)
+    if st.
