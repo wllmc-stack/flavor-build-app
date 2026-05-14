@@ -164,19 +164,17 @@ else:
                         
                         actual_used = round(w_before - w_after, 4)
 
-                        # --- LOGIC FOR LOGGING BOTTLE ---
+                        # --- LOG BOTTLE BUTTON ---
                         if st.button("➕ Log Bottle", use_container_width=True):
                             if sel_lot == "--- Select Lot ---":
                                 st.error("Please select a valid Lot ID.")
                             elif sel_lot == "MANUAL ENTRY" and not manual_lot:
                                 st.error("Manual entry requires a Lot Number.")
                             else:
-                                # Prepare alerts
                                 alerts = []
                                 if sel_lot == "MANUAL ENTRY": alerts.append("MANUAL LOT ENTRY")
                                 if actual_used > remaining_oz: alerts.append(f"OVER-POUR ({actual_used} oz)")
                                 
-                                # Store for confirmation if alerts exist
                                 st.session_state.temp_entry = {
                                     'final_lot': manual_lot if sel_lot == "MANUAL ENTRY" else sel_lot,
                                     'actual_used': actual_used,
@@ -189,7 +187,6 @@ else:
                                 if alerts:
                                     st.session_state.show_confirm = True
                                 else:
-                                    # No alerts, log immediately
                                     if not st.session_state.current_build:
                                         st.session_state.new_build_id = random.randint(100000, 999999)
                                     
@@ -207,14 +204,16 @@ else:
                                     })
                                     st.rerun()
 
-                        # --- POP-UP VERIFICATION WINDOW ---
+                        # --- LOUD VERIFICATION WINDOW ---
                         if st.session_state.get('show_confirm', False):
                             st.divider()
                             with st.container(border=True):
-                                st.error(f"⚠️ **ATTENTION: {st.session_state.temp_entry['notes']}**")
-                                st.write("Please verify these details are correct before logging.")
+                                st.markdown("<h1 style='text-align: center; color: red;'>⚠️ ATTENTION REQUIRED ⚠️</h1>", unsafe_allow_html=True)
+                                st.markdown(f"<h3 style='text-align: center;'>Detected: {st.session_state.temp_entry['notes']}</h3>", unsafe_allow_html=True)
+                                st.error("### YOU ARE LOGGING AN EXCEPTION. PROCEED WITH CAUTION.")
+                                
                                 c_y, c_n = st.columns(2)
-                                if c_y.button("✅ CONFIRM & LOG", use_container_width=True):
+                                if c_y.button("🚨 YES - CONFIRM AND LOG ENTRY 🚨", use_container_width=True, type="primary"):
                                     if not st.session_state.current_build:
                                         st.session_state.new_build_id = random.randint(100000, 999999)
                                     
@@ -232,7 +231,7 @@ else:
                                     })
                                     st.session_state.show_confirm = False
                                     st.rerun()
-                                if c_n.button("❌ CANCEL", use_container_width=True):
+                                if c_n.button("🛑 NO - CANCEL AND RE-ENTER 🛑", use_container_width=True):
                                     st.session_state.show_confirm = False
                                     st.rerun()
 
