@@ -33,7 +33,6 @@ if not st.session_state.authenticated:
     with st.container(border=True):
         user = st.selectbox("Select Your Name", list(USER_DB.keys()))
         password = st.text_input("Enter Password", type="password")
-        
         if st.button("Log In", use_container_width=True):
             if USER_DB.get(user) == password:
                 st.session_state.authenticated = True
@@ -65,11 +64,12 @@ with st.sidebar:
         st.header("📥 Export Data")
         export_df = pd.DataFrame(st.session_state.permanent_history)
         
+        # HEADERS UPDATED: Added 'Notes/Variance'
         final_cols = [
             'Build ID', 'Description', 'Status', 'Product ID to produce', 'Lot ID to produce', 
             'Quantity to produce', 'Start date estimated', 'Start date actual', 
             'Complete date estimated', 'Complete date actual', 'Sublocation', 
-            'Consume lot id', 'Consume sublocation', 'Consume product ID', 'Consume quantity'
+            'Consume lot id', 'Consume sublocation', 'Consume product ID', 'Consume quantity', 'Notes/Variance'
         ]
         
         st.download_button(
@@ -118,16 +118,11 @@ else:
             full_code = full_name.split()[0]
             planned_qty = int(batch_data['Qty'])
             
-            # Conv math and Size Label Logic
             prefix = full_code[0]
-            if prefix == '1': 
-                oz_per, size_label = 0.33814, "10mL"
-            elif prefix == '3': 
-                oz_per, size_label = 1.01442, "30mL"
-            elif prefix == '4': 
-                oz_per, size_label = 4.0, "4oz"
-            else: 
-                oz_per, size_label = 1.0, "Unknown"
+            if prefix == '1': oz_per, size_label = 0.33814, "10mL"
+            elif prefix == '3': oz_per, size_label = 1.01442, "30mL"
+            elif prefix == '4': oz_per, size_label = 4.0, "4oz"
+            else: oz_per, size_label = 1.0, "Unknown"
 
             target_oz = round(planned_qty * oz_per, 4)
             req_base_id = full_code[1:] if len(full_code) >= 5 else full_code
@@ -153,24 +148,57 @@ else:
                     st.error(f"❌ Incorrect ID: Expected **{req_base_id}**.")
                 else:
                     matches = st.session_state.inventory_df[st.session_state.inventory_df['Product ID'] == sku_scan]
-                    if not matches.empty:
-                        col_m, col_i = st.columns([2, 1])
-                        with col_m:
-                            st.success("✅ Validated")
-                            sel_lot = st.selectbox("Confirm Lot ID", matches['Lot ID'].unique())
+                    
+                    col_m, col_i = st.columns([2, 1])
+                    with col_m:
+                        st.success("✅ Validated")
+                        
+                        # --- LOT SELECTION / MANUAL OVERRIDE ---
+                        lot_options = ["--- Select Lot ---"] + list(matches['Lot ID'].unique()) + ["MANUAL ENTRY"]
+                        sel_lot = st.selectbox("Confirm Lot ID", lot_options)
+                        
+                        manual_lot = ""
+                        initial_w = 0.0
+                        
+                        if sel_lot == "MANUAL ENTRY":
+                            manual_lot = st.text_input("Enter Manual Lot Number").strip()
+                            initial_w = st.number_input("Starting Weight (Manual)", value=0.0)
+                        elif sel_lot != "--- Select Lot ---":
                             active = matches[matches['Lot ID'] == sel_lot].iloc[0]
-                            w_before = st.number_input("Weight BEFORE", value=float(active['Quantity']))
-                            w_after = st.number_input("Weight AFTER", value=float(active['Quantity']))
+                            initial_w = float(active['Quantity'])
+
+                        # --- SIDE BY SIDE WEIGHTS ---
+                        w_col1, w_col2 = st.columns(2)
+                        w_before = w_col1.number_input("Weight BEFORE", value=initial_w)
+                        w_after = w_col2.number_input("Weight AFTER", value=0.0)
+                        
+                        actual_used = round(w_before - w_after, 4)
+                        
+                        if st.button("➕ Log Bottle", use_container_width=True):
+                            final_lot = manual_lot if sel_lot == "MANUAL ENTRY" else sel_lot
+                            notes = []
                             
-                            if st.button("➕ Log Bottle", use_container_width=True):
+                            # Validations
+                            if sel_lot == "--- Select Lot ---":
+                                st.error("Please select a valid Lot ID.")
+                            elif sel_lot == "MANUAL ENTRY" and not manual_lot:
+                                st.error("Manual entry requires a Lot Number.")
+                            else:
+                                # 1. Manual Entry Note
+                                if sel_lot == "MANUAL ENTRY":
+                                    notes.append("Manual Lot Entry")
+                                
+                                # 2. Variance Check (Example: if pour > 10% of total target or over remaining)
+                                if actual_used > remaining_oz:
+                                    notes.append(f"Over-pour: Used {actual_used} vs {remaining_oz} remaining")
+                                
+                                # Process the Log
                                 if not st.session_state.current_build:
                                     st.session_state.new_build_id = random.randint(100000, 999999)
                                 
-                                export_description = f"{st.session_state.user_name} {size_label}"
-                                
                                 st.session_state.current_build.append({
                                     'Build ID': st.session_state.new_build_id,
-                                    'Description': export_description,
+                                    'Description': f"{st.session_state.user_name} {size_label}",
                                     'Status': 'Completed',
                                     'Product ID to produce': f"B{full_code}",
                                     'Lot ID to produce': '',
@@ -180,34 +208,32 @@ else:
                                     'Complete date estimated': time.strftime('%m/%d/%Y'),
                                     'Complete date actual': time.strftime('%m/%d/%Y'),
                                     'Sublocation': 'Bottling',
-                                    'Consume lot id': sel_lot,
+                                    'Consume lot id': final_lot,
                                     'Consume sublocation': 'Bottling',
                                     'Consume product ID': req_base_id,
-                                    'Consume quantity': round(w_before - w_after, 4)
+                                    'Consume quantity': actual_used,
+                                    'Notes/Variance': " | ".join(notes) if notes else ""
                                 })
                                 st.rerun()
-                        with col_i:
-                            st.dataframe(matches[['Lot ID', 'Quantity']], hide_index=True)
 
-            # --- LIVE REVIEW TABLE (NEW PLACEMENT) ---
+                    with col_i:
+                        st.subheader("📚 Known Inventory")
+                        st.dataframe(matches[['Lot ID', 'Quantity']], hide_index=True)
+
             if st.session_state.current_build:
                 st.divider()
                 st.subheader("📝 Live Build Review")
-                # Showing only relevant columns for the operator's verification
                 live_review_df = pd.DataFrame(st.session_state.current_build)
-                st.dataframe(live_review_df[['Consume product ID', 'Consume lot id', 'Consume quantity']], use_container_width=True, hide_index=True)
+                st.dataframe(live_review_df[['Consume product ID', 'Consume lot id', 'Consume quantity', 'Notes/Variance']], use_container_width=True, hide_index=True)
 
 # --- REVIEW & FINALIZATION ---
 if st.session_state.current_build:
     st.divider()
     st.subheader("📋 Finalize Build")
-    
     final_units = st.number_input("Actual Units Produced (Final Count)", value=planned_qty)
-    
     if st.button("✅ FINALIZE & SAVE BATCH", type="primary", use_container_width=True):
         for item in st.session_state.current_build:
             item['Quantity to produce'] = final_units
-            
         st.session_state.permanent_history.extend(st.session_state.current_build)
         st.session_state.current_build = []
         st.success("Batch Saved to Log!")
