@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import time
-import random
 
 # --- SESSION MEMORY ---
 if 'inventory_df' not in st.session_state:
@@ -12,11 +11,32 @@ if 'current_build' not in st.session_state:
     st.session_state.current_build = []
 if 'permanent_history' not in st.session_state:
     st.session_state.permanent_history = []
+if 'user_name' not in st.session_state:
+    st.session_state.user_name = None
 
 st.set_page_config(page_title="Flavor Build", layout="wide")
 
+# --- LOGIN SCREEN ---
+if st.session_state.user_name is None:
+    st.title("🔐 Personnel Sign-In")
+    # You can change this to a st.selectbox if you want a fixed list of names
+    name_input = st.text_input("Enter your name to begin:")
+    if st.button("Sign In"):
+        if name_input.strip():
+            st.session_state.user_name = name_input.strip()
+            st.rerun()
+        else:
+            st.error("Please enter a name to continue.")
+    st.stop() # Stops the rest of the app from loading until signed in
+
 # --- SIDEBAR ---
 with st.sidebar:
+    st.header(f"👤 User: {st.session_state.user_name}")
+    if st.button("Sign Out / Change User"):
+        st.session_state.user_name = None
+        st.rerun()
+    
+    st.divider()
     st.header("📂 Data Center")
     inv_file = st.file_uploader("Upload Master Inventory (CSV)", type=['csv'])
     if inv_file:
@@ -31,10 +51,7 @@ with st.sidebar:
     if st.session_state.permanent_history:
         st.divider()
         st.header("📥 Export Data")
-        
-        # FINAL EXPORT MAPPING (Based on your Screenshot)
         export_df = pd.DataFrame(st.session_state.permanent_history)
-        # Ensure correct column order for your system
         final_cols = [
             'Build ID*', 'Description', 'Status', 'Product ID', 'Lot ID to produce', 
             'Quantity to produce', 'Start date estimated', 'Start date actual', 
@@ -84,12 +101,10 @@ else:
             selected_batch = st.selectbox("Select Assigned Batch", batch_options)
             batch_data = df_final[df_final['Name'] == selected_batch].iloc[0]
             
-            # --- CALCULATIONS ---
             full_name = str(batch_data['Name']).strip()
             full_code = full_name.split()[0]
             units_to_make = int(batch_data['Qty'])
             
-            # Conversion for operator's target oz
             size_prefix = full_code[0]
             if size_prefix == '1': oz_per, label = 0.33814, "10ml"
             elif size_prefix == '3': oz_per, label = 1.01442, "30ml"
@@ -133,13 +148,15 @@ else:
                             w_after = w2.number_input("Weight AFTER (oz)", value=float(active['Quantity']))
                             
                             if st.button("➕ Log Bottle to Build", use_container_width=True):
-                                # Generate Build ID if first bottle, otherwise reuse
                                 if not st.session_state.current_build:
                                     st.session_state.new_build_id = int(time.time())
                                 
+                                # ADDING THE PERSONNEL TO THE DESCRIPTION HERE
+                                user_stamp = f"{full_name} - Logged by: {st.session_state.user_name}"
+                                
                                 st.session_state.current_build.append({
                                     'Build ID*': st.session_state.new_build_id,
-                                    'Description': full_name,
+                                    'Description': user_stamp, # UPDATED
                                     'Status': 'Completed',
                                     'Product ID': full_code,
                                     'Lot ID to produce': '',
@@ -149,7 +166,7 @@ else:
                                     'Complete date estimated': time.strftime('%m/%d/%Y'),
                                     'Complete date actual': time.strftime('%m/%d/%Y'),
                                     'Sublocation': 'Bottling',
-                                    'Consume location': 'Warehouse', # Example
+                                    'Consume location': 'Warehouse',
                                     'Consume sublocation': 'Bottling',
                                     'Consume product ID': req_base_id,
                                     'Consume quantity': round(w_before - w_after, 4)
@@ -157,18 +174,3 @@ else:
                                 st.rerun()
                         with col_i:
                             st.dataframe(matches[['Lot ID', 'Quantity']], hide_index=True)
-
-    # --- FINALIZATION ---
-    if st.session_state.current_build:
-        st.divider()
-        st.subheader("📋 Current Build Progress")
-        st.table(pd.DataFrame(st.session_state.current_build)[['Build ID*', 'Consume product ID', 'Consume quantity']])
-        if st.button("✅ FINALIZE BATCH", type="primary", use_container_width=True):
-            st.session_state.permanent_history.extend(st.session_state.current_build)
-            st.session_state.current_build = []
-            st.rerun()
-
-    if st.session_state.permanent_history:
-        st.divider()
-        st.subheader("📜 Running Day Log")
-        st.dataframe(pd.DataFrame(st.session_state.permanent_history), use_container_width=True)
