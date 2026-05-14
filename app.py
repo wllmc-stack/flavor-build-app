@@ -1,5 +1,5 @@
 import streamlit as st
-import pd as pd
+import pandas as pd
 import time
 import random
 
@@ -65,7 +65,7 @@ with st.sidebar:
         st.header("📥 Export Data")
         export_df = pd.DataFrame(st.session_state.permanent_history)
         
-        # HEADERS UPDATED: "Product ID to produce" 
+        # HEADERS UPDATED
         final_cols = [
             'Build ID', 'Description', 'Status', 'Product ID to produce', 'Lot ID to produce', 
             'Quantity to produce', 'Start date estimated', 'Start date actual', 
@@ -119,7 +119,7 @@ else:
             full_code = full_name.split()[0]
             planned_qty = int(batch_data['Qty'])
             
-            # Conv math for Operator only
+            # Conv math for Operator ONLY
             prefix = full_code[0]
             if prefix == '1': oz_per, label = 0.33814, "10ml"
             elif prefix == '3': oz_per, label = 1.01442, "30ml"
@@ -161,16 +161,15 @@ else:
                             
                             if st.button("➕ Log Bottle", use_container_width=True):
                                 if not st.session_state.current_build:
-                                    # RANDOM 6 DIGIT ID
                                     st.session_state.new_build_id = random.randint(100000, 999999)
                                 
                                 st.session_state.current_build.append({
                                     'Build ID': st.session_state.new_build_id,
                                     'Description': f"{full_name} - {st.session_state.user_name}",
                                     'Status': 'Completed',
-                                    'Product ID to produce': full_code, # Updated Header
+                                    'Product ID to produce': full_code,
                                     'Lot ID to produce': '',
-                                    'Quantity to produce': 0, # Placeholder, filled at finalization
+                                    'Quantity to produce': 0, 
                                     'Start date estimated': time.strftime('%m/%d/%Y'),
                                     'Start date actual': time.strftime('%m/%d/%Y'),
                                     'Complete date estimated': time.strftime('%m/%d/%Y'),
@@ -190,11 +189,9 @@ if st.session_state.current_build:
     st.divider()
     st.subheader("📋 Finalize Build")
     
-    # NEW: Manual Entry for Actual Quantity Produced
-    final_units = st.number_input("Actual Units Produced (Final Count)", value=int(st.session_state.current_build[0]['Quantity to produce']) or planned_qty)
+    final_units = st.number_input("Actual Units Produced (Final Count)", value=planned_qty)
     
     if st.button("✅ FINALIZE & SAVE BATCH", type="primary", use_container_width=True):
-        # Apply the manual count to all rows in this build
         for item in st.session_state.current_build:
             item['Quantity to produce'] = final_units
             
