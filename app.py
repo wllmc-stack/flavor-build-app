@@ -46,20 +46,17 @@ else:
         df_raw = st.session_state.schedule_df.parse(selected_tab)
         
         # 2. AGGRESSIVE HEADER CLEANING
-        # We find the first column that looks like 'Name' and 'Qty'
         name_col = next((c for c in df_raw.columns if "Name" in str(c)), None)
         qty_col = next((c for c in df_raw.columns if "Qty" in str(c)), None)
 
         if name_col and qty_col:
             # Create a clean version with only the two columns we need
             df_clean = df_raw[[name_col, qty_col]].copy()
-            df_clean.columns = ['Name', 'Qty'] # Rename them to standard
+            df_clean.columns = ['Name', 'Qty']
             
             # 3. DATA CLEANING
             df_clean = df_clean.dropna(subset=['Name'])
             df_clean['Qty'] = pd.to_numeric(df_clean['Qty'], errors='coerce').fillna(0)
-            
-            # Filter for active work only
             df_final = df_clean[df_clean['Qty'] > 0].copy()
             
             batch_options = df_final['Name'].unique()
@@ -97,7 +94,9 @@ else:
                         matches = st.session_state.inventory_df[st.session_state.inventory_df['Product ID'] == sku_scan]
                         
                         if not matches.empty:
+                            # WE DEFINE THE COLUMNS HERE AND USE THEM IMMEDIATELY
                             col_m, col_i = st.columns([2, 1])
+                            
                             with col_m:
                                 st.success("✅ Ingredient Validated")
                                 sel_lot = st.selectbox("Confirm Lot ID", matches['Lot ID'].unique())
@@ -119,9 +118,11 @@ else:
                                     })
                                     st.rerun()
                             
-                            with col_info:
+                            with col_i:
                                 st.subheader("📚 Lot Options")
                                 st.dataframe(matches[['Lot ID', 'Quantity']], hide_index=True)
+                        else:
+                            st.error(f"Base ID {required_base_id} found in schedule, but not found in Master Inventory.")
         else:
             st.error(f"Couldn't find 'Name' or 'Qty' columns. Headers seen: {list(df_raw.columns)}")
 
