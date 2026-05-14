@@ -5,7 +5,7 @@ import time
 # --- 1. USER DATABASE (Add your team here) ---
 USER_DB = {
     "Admin": "1234",
-    "WIlliam": "9999",
+    "William": "9999",
     "Sarah": "9012",
     "Production_Station_1": "bottling2024"
 }
