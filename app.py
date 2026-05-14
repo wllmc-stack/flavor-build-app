@@ -136,4 +136,16 @@ else:
             st.error(f"Couldn't find 'Name' or 'Qty' columns.")
 
     # --- REVIEW & HISTORY ---
-    if st.
+    if st.session_state.current_build:
+        st.divider()
+        st.subheader("📋 Current Build Progress")
+        st.table(pd.DataFrame(st.session_state.current_build))
+        if st.button("✅ FINALIZE BATCH", type="primary", use_container_width=True):
+            st.session_state.permanent_history.extend(st.session_state.current_build)
+            st.session_state.current_build = []
+            st.rerun()
+
+    if st.session_state.permanent_history:
+        st.divider()
+        st.subheader("📜 Running Day Log")
+        st.dataframe(pd.DataFrame(st.session_state.permanent_history), use_container_width=True)
