@@ -166,14 +166,13 @@ else:
                                 if not st.session_state.current_build:
                                     st.session_state.new_build_id = random.randint(100000, 999999)
                                 
-                                # UPDATED DESCRIPTION: User Name + Size
                                 export_description = f"{st.session_state.user_name} {size_label}"
                                 
                                 st.session_state.current_build.append({
                                     'Build ID': st.session_state.new_build_id,
                                     'Description': export_description,
                                     'Status': 'Completed',
-                                    'Product ID to produce': f"B{full_code}", # ADDED 'B' PREFIX
+                                    'Product ID to produce': f"B{full_code}",
                                     'Lot ID to produce': '',
                                     'Quantity to produce': 0, 
                                     'Start date estimated': time.strftime('%m/%d/%Y'),
@@ -189,6 +188,14 @@ else:
                                 st.rerun()
                         with col_i:
                             st.dataframe(matches[['Lot ID', 'Quantity']], hide_index=True)
+
+            # --- LIVE REVIEW TABLE (NEW PLACEMENT) ---
+            if st.session_state.current_build:
+                st.divider()
+                st.subheader("📝 Live Build Review")
+                # Showing only relevant columns for the operator's verification
+                live_review_df = pd.DataFrame(st.session_state.current_build)
+                st.dataframe(live_review_df[['Consume product ID', 'Consume lot id', 'Consume quantity']], use_container_width=True, hide_index=True)
 
 # --- REVIEW & FINALIZATION ---
 if st.session_state.current_build:
