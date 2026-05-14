@@ -2,6 +2,14 @@ import streamlit as st
 import pandas as pd
 import time
 
+# --- 1. USER DATABASE (Add your team here) ---
+USER_DB = {
+    "Admin": "1234",
+    "WIlliam": "9999",
+    "Sarah": "9012",
+    "Production_Station_1": "bottling2024"
+}
+
 # --- SESSION MEMORY ---
 if 'inventory_df' not in st.session_state:
     st.session_state.inventory_df = pd.DataFrame()
@@ -11,29 +19,38 @@ if 'current_build' not in st.session_state:
     st.session_state.current_build = []
 if 'permanent_history' not in st.session_state:
     st.session_state.permanent_history = []
+if 'authenticated' not in st.session_state:
+    st.session_state.authenticated = False
 if 'user_name' not in st.session_state:
-    st.session_state.user_name = None
+    st.session_state.user_name = ""
 
 st.set_page_config(page_title="Flavor Build", layout="wide")
 
 # --- LOGIN SCREEN ---
-if st.session_state.user_name is None:
-    st.title("🔐 Personnel Sign-In")
-    # You can change this to a st.selectbox if you want a fixed list of names
-    name_input = st.text_input("Enter your name to begin:")
-    if st.button("Sign In"):
-        if name_input.strip():
-            st.session_state.user_name = name_input.strip()
-            st.rerun()
-        else:
-            st.error("Please enter a name to continue.")
-    st.stop() # Stops the rest of the app from loading until signed in
+def login():
+    st.title("🔐 Flavor Build Login")
+    with st.container(border=True):
+        user = st.selectbox("Select Your Name", list(USER_DB.keys()))
+        password = st.text_input("Enter Password", type="password")
+        
+        if st.button("Log In", use_container_width=True):
+            if USER_DB.get(user) == password:
+                st.session_state.authenticated = True
+                st.session_state.user_name = user
+                st.rerun()
+            else:
+                st.error("Incorrect password. Please try again.")
+
+if not st.session_state.authenticated:
+    login()
+    st.stop()
 
 # --- SIDEBAR ---
 with st.sidebar:
-    st.header(f"👤 User: {st.session_state.user_name}")
-    if st.button("Sign Out / Change User"):
-        st.session_state.user_name = None
+    st.success(f"✅ Logged in as: **{st.session_state.user_name}**")
+    if st.button("Logout"):
+        st.session_state.authenticated = False
+        st.session_state.user_name = ""
         st.rerun()
     
     st.divider()
@@ -119,7 +136,7 @@ else:
             c1, c2, c3 = st.columns(3)
             c1.metric("📦 Units to Make", f"{units_to_make} bottles")
             c2.metric("📏 Unit Size", label)
-            c3.metric("🎯 Target to Pour", f"{target_oz} oz")
+            c3.metric("🎯 Total Target", f"{target_oz} oz")
 
             st.divider()
             current_oz = sum(item['Consume quantity'] for item in st.session_state.current_build)
@@ -151,12 +168,11 @@ else:
                                 if not st.session_state.current_build:
                                     st.session_state.new_build_id = int(time.time())
                                 
-                                # ADDING THE PERSONNEL TO THE DESCRIPTION HERE
                                 user_stamp = f"{full_name} - Logged by: {st.session_state.user_name}"
                                 
                                 st.session_state.current_build.append({
                                     'Build ID*': st.session_state.new_build_id,
-                                    'Description': user_stamp, # UPDATED
+                                    'Description': user_stamp,
                                     'Status': 'Completed',
                                     'Product ID': full_code,
                                     'Lot ID to produce': '',
