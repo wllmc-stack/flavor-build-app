@@ -65,7 +65,6 @@ with st.sidebar:
         st.header("📥 Export Data")
         export_df = pd.DataFrame(st.session_state.permanent_history)
         
-        # HEADERS UPDATED: 'Consume location' changed to 'Consume lot id'
         final_cols = [
             'Build ID', 'Description', 'Status', 'Product ID to produce', 'Lot ID to produce', 
             'Quantity to produce', 'Start date estimated', 'Start date actual', 
@@ -119,12 +118,16 @@ else:
             full_code = full_name.split()[0]
             planned_qty = int(batch_data['Qty'])
             
-            # Conv math for Operator ONLY
+            # Conv math and Size Label Logic
             prefix = full_code[0]
-            if prefix == '1': oz_per, label = 0.33814, "10ml"
-            elif prefix == '3': oz_per, label = 1.01442, "30ml"
-            elif prefix == '4': oz_per, label = 4.0, "4oz"
-            else: oz_per, label = 1.0, "Unknown"
+            if prefix == '1': 
+                oz_per, size_label = 0.33814, "10mL"
+            elif prefix == '3': 
+                oz_per, size_label = 1.01442, "30mL"
+            elif prefix == '4': 
+                oz_per, size_label = 4.0, "4oz"
+            else: 
+                oz_per, size_label = 1.0, "Unknown"
 
             target_oz = round(planned_qty * oz_per, 4)
             req_base_id = full_code[1:] if len(full_code) >= 5 else full_code
@@ -132,7 +135,7 @@ else:
             st.divider()
             c1, c2, c3 = st.columns(3)
             c1.metric("📦 Planned Units", f"{planned_qty}")
-            c2.metric("📏 Unit Size", label)
+            c2.metric("📏 Unit Size", size_label)
             c3.metric("🎯 Target Oz", f"{target_oz} oz")
 
             current_oz = sum(item['Consume quantity'] for item in st.session_state.current_build)
@@ -163,11 +166,14 @@ else:
                                 if not st.session_state.current_build:
                                     st.session_state.new_build_id = random.randint(100000, 999999)
                                 
+                                # UPDATED DESCRIPTION: User Name + Size
+                                export_description = f"{st.session_state.user_name} {size_label}"
+                                
                                 st.session_state.current_build.append({
                                     'Build ID': st.session_state.new_build_id,
-                                    'Description': f"{full_name} - {st.session_state.user_name}",
+                                    'Description': export_description,
                                     'Status': 'Completed',
-                                    'Product ID to produce': full_code,
+                                    'Product ID to produce': f"B{full_code}", # ADDED 'B' PREFIX
                                     'Lot ID to produce': '',
                                     'Quantity to produce': 0, 
                                     'Start date estimated': time.strftime('%m/%d/%Y'),
@@ -175,7 +181,7 @@ else:
                                     'Complete date estimated': time.strftime('%m/%d/%Y'),
                                     'Complete date actual': time.strftime('%m/%d/%Y'),
                                     'Sublocation': 'Bottling',
-                                    'Consume lot id': sel_lot, # Mapping changed here
+                                    'Consume lot id': sel_lot,
                                     'Consume sublocation': 'Bottling',
                                     'Consume product ID': req_base_id,
                                     'Consume quantity': round(w_before - w_after, 4)
