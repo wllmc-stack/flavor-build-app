@@ -7,13 +7,10 @@ if 'inventory_df' not in st.session_state:
     st.session_state.inventory_df = pd.DataFrame()
 if 'build_log' not in st.session_state:
     st.session_state.build_log = []
-# This tracks if we just finished a bottle to help clear the scanner
-if 'last_scan' not in st.session_state:
-    st.session_state.last_scan = ""
 
 st.set_page_config(page_title="Flavor Build App", layout="wide")
 
-# --- SIDEBAR: EXPORT ONLY ---
+# --- SIDEBAR: FINAL EXPORT ONLY ---
 with st.sidebar:
     st.header("📦 Inventory Setup")
     uploaded_file = st.file_uploader("Upload Master List (CSV)", type=['csv'])
@@ -25,17 +22,20 @@ with st.sidebar:
 
     if st.session_state.build_log:
         st.divider()
-        st.header("📝 Session Export")
+        st.header("🏁 Final Step")
+        # Separate button to finally "Create" the build file
         export_df = pd.DataFrame(st.session_state.build_log)
         st.download_button(
-            label="📊 Download Build Report",
+            label="🚀 CREATE BUILD & DOWNLOAD",
             data=export_df.to_csv(index=False).encode('latin1'),
-            file_name=f"build_report_{time.strftime('%Y%m%d')}.csv",
+            file_name=f"final_build_{time.strftime('%Y%m%d_%H%M')}.csv",
             mime="text/csv",
-            use_container_width=True
+            use_container_width=True,
+            type="primary"
         )
-        if st.button("Undo Last Entry"):
-            st.session_state.build_log.pop()
+        
+        if st.button("Clear Everything"):
+            st.session_state.build_log = []
             st.rerun()
 
 # --- MAIN WORK AREA ---
@@ -46,8 +46,8 @@ if st.session_state.inventory_df.empty:
 else:
     batch_ref = st.text_input("Batch / Order Reference", placeholder="e.g. BATCH-505")
     
-    # We use a key here so we can clear it programmatically
-    sku_scan = st.text_input("Scan Product ID", key="barcode_input").strip()
+    # Scanner input
+    sku_scan = st.text_input("Scan Product ID").strip()
 
     if sku_scan:
         matches = st.session_state.inventory_df[st.session_state.inventory_df['Product ID'] == sku_scan]
@@ -66,8 +66,8 @@ else:
                 w_start = st.number_input("Weight BEFORE", value=current_qty)
                 w_end = st.number_input("Weight AFTER", value=current_qty)
                 
-                # THE "COMPLETE & NEXT" BUTTON
-                if st.button("✅ Complete Bottle & Next Scan", type="primary", use_container_width=True):
+                # FUNCTION 1: Just logs the bottle to the list
+                if st.button("➕ Log Bottle to List"):
                     st.session_state.build_log.append({
                         'Batch Ref': batch_ref,
                         'Product ID': sku_scan,
@@ -78,18 +78,21 @@ else:
                         'Used': round(w_start - w_end, 4),
                         'Time': time.strftime('%H:%M:%S')
                     })
-                    # Reset the scanner for the next bottle
-                    st.session_state.barcode_input = ""
-                    st.rerun()
+                    st.toast("Added to log!")
 
             with col_info:
-                st.subheader("📚 Other Lots")
+                st.subheader("📚 SKU Inventory")
                 st.dataframe(matches[['Lot ID', 'Quantity']], hide_index=True)
         else:
             st.error(f"SKU '{sku_scan}' not found.")
 
-    # --- THE LIVE BUILD LOG ---
+    # --- THE REVIEW LIST ---
     if st.session_state.build_log:
         st.divider()
-        st.subheader("📋 Session Build Log")
+        st.subheader("📋 Review Build (Logged Bottles)")
         st.table(pd.DataFrame(st.session_state.build_log))
+        
+        # FUNCTION 2: Separate "Undo" if a mistake is spotted in the review
+        if st.button("Remove Last Scanned Bottle"):
+            st.session_state.build_log.pop()
+            st.rerun()
