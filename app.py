@@ -30,11 +30,31 @@ with st.sidebar:
     if st.session_state.permanent_history:
         st.divider()
         st.header("📥 Export Data")
-        final_df = pd.DataFrame(st.session_state.permanent_history)
+        
+        # MAPPING TO YOUR REQUIRED HEADERS
+        raw_data = st.session_state.permanent_history
+        export_df = pd.DataFrame({
+            'Build ID*': [item.get('Build ID*', '') for item in raw_data],
+            'Description': [item.get('Description', '') for item in raw_data],
+            'Status': [item.get('Status', '') for item in raw_data],
+            'Product ID': [item.get('Product ID', '') for item in raw_data],
+            'Lot ID to produce': [item.get('Lot ID to produce', '') for item in raw_data],
+            'Quantity to produce': [item.get('Quantity to produce', '') for item in raw_data],
+            'Start date estimated': [item.get('Start date estimated', '') for item in raw_data],
+            'Start date actual': [item.get('Start date actual', '') for item in raw_data],
+            'Complete date estimated': [item.get('Complete date estimated', '') for item in raw_data],
+            'Complete date actual': [item.get('Complete date actual', '') for item in raw_data],
+            'Sublocation': [item.get('Sublocation', '') for item in raw_data],
+            'Consume location': [item.get('Consume location', '') for item in raw_data],
+            'Consume sublocation': [item.get('Consume sublocation', '') for item in raw_data],
+            'Consume product ID': [item.get('Base ID', '') for item in raw_data], # Mapping Base ID here
+            'Consume quantity': [item.get('Used (oz)', '') for item in raw_data] # Mapping Used Oz here
+        })
+
         st.download_button(
-            label="📊 DOWNLOAD FULL SESSION LOG",
-            data=final_df.to_csv(index=False).encode('latin1'),
-            file_name=f"flavor_build_report_{time.strftime('%Y%m%d_%H%M')}.csv",
+            label="📊 DOWNLOAD FORMATTED CSV",
+            data=export_df.to_csv(index=False).encode('latin1'),
+            file_name=f"build_export_{time.strftime('%Y%m%d_%H%M')}.csv",
             mime="text/csv",
             use_container_width=True,
             type="primary"
@@ -76,91 +96,75 @@ else:
                 st.warning(f"No active batches found on {selected_tab}.")
             else:
                 selected_batch = st.selectbox("Select Assigned Batch", batch_options)
-                
                 batch_data = df_final[df_final['Name'] == selected_batch].iloc[0]
                 name_str = str(batch_data['Name']).strip()
                 full_code = name_str.split()[0]
                 bottles_to_make = float(batch_data['Qty'])
                 
-                # --- CONVERSION LOGIC ---
-                # 1ml = 0.033814 oz
-                # 10ml = 0.33814 oz per bottle
-                # 30ml = 1.01442 oz per bottle
-                
+                # Conversion Math
                 size_prefix = full_code[0]
-                if size_prefix == '1': # 10ml
-                    oz_per_unit = 0.33814
-                    unit_label = "10ml"
-                elif size_prefix == '3': # 30ml
-                    oz_per_unit = 1.01442
-                    unit_label = "30ml"
-                elif size_prefix == '4': # 4oz
-                    oz_per_unit = 4.0
-                    unit_label = "4oz"
-                else:
-                    oz_per_unit = 1.0 # Fallback
-                    unit_label = "Unknown"
+                if size_prefix == '1': 
+                    oz_per_unit, unit_label = 0.33814, "10ml"
+                elif size_prefix == '3': 
+                    oz_per_unit, unit_label = 1.01442, "30ml"
+                elif size_prefix == '4': 
+                    oz_per_unit, unit_label = 4.0, "4oz"
+                else: 
+                    oz_per_unit, unit_label = 1.0, "Unknown"
 
                 target_qty_oz = round(bottles_to_make * oz_per_unit, 4)
                 required_base_id = full_code[1:] if len(full_code) >= 5 else full_code
                 
                 # --- DASHBOARD ---
                 st.divider()
-                
-                # Three columns for better clarity
-                col_info1, col_info2, col_info3 = st.columns(3)
-                col_info1.metric("📦 Units to Make", f"{int(bottles_to_make)} bottles")
-                col_info2.metric("📏 Unit Size", unit_label)
-                col_info3.metric("🎯 Total Oz to Pour", f"{target_qty_oz} oz")
+                c1, c2, c3 = st.columns(3)
+                c1.metric("📦 Units to Make", f"{int(bottles_to_make)} bottles")
+                c2.metric("📏 Unit Size", unit_label)
+                c3.metric("🎯 Total Target", f"{target_qty_oz} oz")
 
                 st.divider()
                 current_total = sum(item['Used (oz)'] for item in st.session_state.current_build)
                 remaining = round(target_qty_oz - current_total, 4)
                 
-                c_left, c_right = st.columns(2)
-                c_left.metric("⚖️ Remaining to Pour", f"{remaining} oz")
-                c_right.metric("🧪 Already Poured", f"{current_total} oz")
+                cl, cr = st.columns(2)
+                cl.metric("⚖️ Remaining", f"{remaining} oz")
+                cr.metric("🧪 Logged", f"{current_total} oz")
 
                 st.warning(f"🛡️ **Safety Lock:** Scan Base ID: **{required_base_id}**")
-
                 sku_scan = st.text_input("Scan Barcode").strip()
 
                 if sku_scan:
                     if sku_scan != required_base_id:
-                        st.error(f"❌ INCORRECT INGREDIENT! Expected **{required_base_id}**, but scanned **{sku_scan}**.")
+                        st.error(f"❌ INCORRECT INGREDIENT! Expected **{required_base_id}**.")
                     else:
                         matches = st.session_state.inventory_df[st.session_state.inventory_df['Product ID'] == sku_scan]
-                        
                         if not matches.empty:
                             col_m, col_i = st.columns([2, 1])
                             with col_m:
                                 st.success("✅ Ingredient Validated")
                                 sel_lot = st.selectbox("Confirm Lot ID", matches['Lot ID'].unique())
                                 active = matches[matches['Lot ID'] == sel_lot].iloc[0]
-                                c1, c2 = st.columns(2)
-                                w_before = c1.number_input("Weight BEFORE (oz)", value=float(active['Quantity']))
-                                w_after = c2.number_input("Weight AFTER (oz)", value=float(active['Quantity']))
+                                w1, w2 = st.columns(2)
+                                w_before = w1.number_input("Weight BEFORE (oz)", value=float(active['Quantity']))
+                                w_after = w2.number_input("Weight AFTER (oz)", value=float(active['Quantity']))
                                 
                                 if st.button("➕ Log Bottle to Build", use_container_width=True):
                                     st.session_state.current_build.append({
-                                        'Line': selected_tab,
-                                        'Batch': full_code,
-                                        'Product': name_str,
                                         'Base ID': required_base_id,
-                                        'Lot ID': sel_lot,
                                         'Used (oz)': round(w_before - w_after, 4),
-                                        'Time': time.strftime('%H:%M:%S')
+                                        'Lot ID to produce': sel_lot, # Placeholder logic
+                                        'Quantity to produce': target_qty_oz, # Placeholder logic
+                                        # The other headers will stay empty until you explain where they come from
                                     })
                                     st.rerun()
                             with col_i:
-                                st.subheader("📚 Lot Inventory")
                                 st.dataframe(matches[['Lot ID', 'Quantity']], hide_index=True)
                         else:
-                            st.error(f"Base ID {required_base_id} not found in Master Inventory.")
+                            st.error(f"Base ID {required_base_id} not found in Inventory.")
         else:
             st.error(f"Couldn't find 'Name' or 'Qty' columns.")
 
-    # --- REVIEW & HISTORY ---
+    # --- REVIEW & FINALIZATION ---
     if st.session_state.current_build:
         st.divider()
         st.subheader("📋 Current Build Progress")
