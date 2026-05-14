@@ -2,10 +2,10 @@ import streamlit as st
 import pandas as pd
 import time
 
-# --- 1. USER DATABASE (Add your team here) ---
+# --- 1. USER DATABASE ---
 USER_DB = {
     "Admin": "1234",
-    "William": "9999",
+    "Mike": "5678",
     "Sarah": "9012",
     "Production_Station_1": "bottling2024"
 }
@@ -27,7 +27,7 @@ if 'user_name' not in st.session_state:
 st.set_page_config(page_title="Flavor Build", layout="wide")
 
 # --- LOGIN SCREEN ---
-def login():
+if not st.session_state.authenticated:
     st.title("🔐 Flavor Build Login")
     with st.container(border=True):
         user = st.selectbox("Select Your Name", list(USER_DB.keys()))
@@ -40,12 +40,9 @@ def login():
                 st.rerun()
             else:
                 st.error("Incorrect password. Please try again.")
+    st.stop() 
 
-if not st.session_state.authenticated:
-    login()
-    st.stop()
-
-# --- SIDEBAR ---
+# --- SIDEBAR (Download Button Lives Here) ---
 with st.sidebar:
     st.success(f"✅ Logged in as: **{st.session_state.user_name}**")
     if st.button("Logout"):
@@ -65,6 +62,7 @@ with st.sidebar:
         st.session_state.schedule_df = pd.ExcelFile(sch_file)
         st.success("Schedule Loaded")
 
+    # RESTORED DOWNLOAD SECTION
     if st.session_state.permanent_history:
         st.divider()
         st.header("📥 Export Data")
@@ -190,3 +188,23 @@ else:
                                 st.rerun()
                         with col_i:
                             st.dataframe(matches[['Lot ID', 'Quantity']], hide_index=True)
+    else:
+        st.error("Columns 'Name' or 'Qty' not found in selected sheet.")
+
+# --- REVIEW & HISTORY (ALWAYS VISIBLE BELOW MAIN FLOW) ---
+if st.session_state.current_build:
+    st.divider()
+    st.subheader("📋 Current Build Progress")
+    # Show only the key columns for review
+    review_df = pd.DataFrame(st.session_state.current_build)
+    st.table(review_df[['Build ID*', 'Consume product ID', 'Consume quantity']])
+    
+    if st.button("✅ FINALIZE BATCH", type="primary", use_container_width=True):
+        st.session_state.permanent_history.extend(st.session_state.current_build)
+        st.session_state.current_build = []
+        st.rerun()
+
+if st.session_state.permanent_history:
+    st.divider()
+    st.subheader("📜 Running Day Log")
+    st.dataframe(pd.DataFrame(st.session_state.permanent_history), use_container_width=True)
