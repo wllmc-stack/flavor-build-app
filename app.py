@@ -65,12 +65,12 @@ with st.sidebar:
         st.header("📥 Export Data")
         export_df = pd.DataFrame(st.session_state.permanent_history)
         
-        # HEADERS UPDATED
+        # HEADERS UPDATED: 'Consume location' changed to 'Consume lot id'
         final_cols = [
             'Build ID', 'Description', 'Status', 'Product ID to produce', 'Lot ID to produce', 
             'Quantity to produce', 'Start date estimated', 'Start date actual', 
             'Complete date estimated', 'Complete date actual', 'Sublocation', 
-            'Consume location', 'Consume sublocation', 'Consume product ID', 'Consume quantity'
+            'Consume lot id', 'Consume sublocation', 'Consume product ID', 'Consume quantity'
         ]
         
         st.download_button(
@@ -175,7 +175,7 @@ else:
                                     'Complete date estimated': time.strftime('%m/%d/%Y'),
                                     'Complete date actual': time.strftime('%m/%d/%Y'),
                                     'Sublocation': 'Bottling',
-                                    'Consume location': 'Bottling',
+                                    'Consume lot id': sel_lot, # Mapping changed here
                                     'Consume sublocation': 'Bottling',
                                     'Consume product ID': req_base_id,
                                     'Consume quantity': round(w_before - w_after, 4)
