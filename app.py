@@ -2,94 +2,93 @@ import streamlit as st
 import pandas as pd
 import time
 
-# --- 1. INITIALIZATION (The App's Memory) ---
+# --- STATE MANAGEMENT ---
 if 'inventory_df' not in st.session_state:
     st.session_state.inventory_df = pd.DataFrame()
-if 'build_records' not in st.session_state:
-    st.session_state.build_records = []
+if 'build_log' not in st.session_state:
+    st.session_state.build_log = []
 
 st.set_page_config(page_title="Flavor Build App", layout="wide")
 
-# --- 2. SIDEBAR (Import & Export) ---
+# --- SIDEBAR: LOGISTICS & EXPORT ---
 with st.sidebar:
-    st.header("Inventory Management")
-    uploaded_file = st.file_uploader("Upload Master List", type=['csv'])
+    st.header("📦 Inventory Setup")
+    uploaded_file = st.file_uploader("Upload Master List (CSV)", type=['csv'])
+    
     if uploaded_file and st.session_state.inventory_df.empty:
-        # Load data as strings to keep leading zeros (0054)
         df = pd.read_csv(uploaded_file, dtype={'Product ID': str, 'Lot ID': str}, encoding='latin1')
         df.columns = df.columns.str.strip()
         st.session_state.inventory_df = df
-        st.success("Master List Loaded")
+        st.success("Master List Ready")
 
-    # --- THE BUILD-ONLY EXPORT ---
-    if st.session_state.build_records:
+    # THE BUILD-ONLY EXPORT: This is the specific "Transaction Record"
+    if st.session_state.build_log:
         st.divider()
-        st.header("Batch Export")
-        # This only pulls from the session's work, not the whole master list
-        batch_df = pd.DataFrame(st.session_state.build_records)
+        st.header("📝 Session Export")
+        export_df = pd.DataFrame(st.session_state.build_log)
         
         st.download_button(
-            label="💾 Download Build Report Only",
-            data=batch_df.to_csv(index=False).encode('latin1'),
-            file_name=f"build_report_{time.strftime('%Y%m%d')}.csv",
+            label="📊 Download Build Record",
+            data=export_df.to_csv(index=False).encode('latin1'),
+            file_name=f"batch_report_{time.strftime('%Y%m%d_%H%M')}.csv",
             mime="text/csv",
-            use_container_width=True,
-            help="This file contains only the bottles you processed in this session."
+            use_container_width=True
         )
+        
+        if st.button("Clear Session"):
+            st.session_state.build_log = []
+            st.rerun()
 
-# --- 3. MAIN WORKFLOW ---
+# --- MAIN WORK AREA ---
 st.title("🧪 Flavor Build Station")
 
 if st.session_state.inventory_df.empty:
-    st.info("Please upload your Master List in the sidebar to begin.")
+    st.warning("Awaiting Master List upload...")
 else:
-    # BATCH IDENTIFIER (Good for tracking which order these bottles belong to)
-    batch_id = st.text_input("Enter Batch / Order Number", placeholder="e.g., BATCH-202").strip()
-
-    # SCANNER INPUT
-    sku_scan = st.text_input("Scan Product ID").strip()
+    # Optional Batch Identifier to tag the entire export
+    batch_ref = st.text_input("Batch / Project Reference", placeholder="e.g. Order #4451")
+    
+    sku_scan = st.text_input("Scan Product ID Barcode").strip()
 
     if sku_scan:
-        df = st.session_state.inventory_df
-        matches = df[df['Product ID'] == sku_scan]
+        matches = st.session_state.inventory_df[st.session_state.inventory_df['Product ID'] == sku_scan]
 
         if not matches.empty:
-            col_left, col_right = st.columns(2)
-
-            with col_left:
-                st.subheader("🎯 Scanned Bottle")
-                sel_lot = st.selectbox("Confirm Lot ID", matches['Lot ID'].unique())
-                active = matches[matches['Lot ID'] == sel_lot].iloc[0]
+            col_main, col_info = st.columns([2, 1])
+            
+            with col_main:
+                st.subheader("🎯 Current Bottle")
+                selected_lot = st.selectbox("Select Lot ID", matches['Lot ID'].unique())
+                active_row = matches[matches['Lot ID'] == selected_lot].iloc[0]
                 
-                st.write(f"**Description:** {active['Description']}")
-                current_qty = float(active['Quantity'])
+                st.info(f"**Description:** {active_row['Description']}")
+                current_qty = float(active_row['Quantity'])
                 
-                # Input usage
-                w_start = st.number_input("Weight Before Pouring", value=current_qty)
-                w_end = st.number_input("Weight After Pouring", value=current_qty)
+                # Weight Entry
+                w_start = st.number_input("Weight BEFORE", value=current_qty)
+                w_end = st.number_input("Weight AFTER", value=current_qty)
                 
-                if st.button("➕ Log this Bottle"):
-                    st.session_state.build_records.append({
-                        'Batch ID': batch_id,
+                if st.button("Log Usage", type="primary"):
+                    st.session_state.build_log.append({
+                        'Batch Ref': batch_ref,
                         'Product ID': sku_scan,
-                        'Lot ID': sel_lot,
-                        'Description': active['Description'],
-                        'Start Weight': w_start,
-                        'Final Weight': w_end,
-                        'Consumed': round(w_start - w_end, 4),
-                        'Timestamp': time.strftime('%H:%M:%S')
+                        'Lot ID': selected_lot,
+                        'Description': active_row['Description'],
+                        'Weight Start': w_start,
+                        'Weight End': w_end,
+                        'Qty Consumed': round(w_start - w_end, 4),
+                        'Time': time.strftime('%H:%M:%S')
                     })
-                    st.toast(f"Logged {sel_lot} to Build!")
+                    st.toast("Bottle logged to Batch Record")
 
-            with col_right:
-                st.subheader("📚 SKU Context (Other Lots)")
-                # Shows other options so they can find nearly-empty bottles
-                st.dataframe(matches[['Lot ID', 'Quantity']], use_container_width=True, hide_index=True)
+            with col_info:
+                st.subheader("📚 Other Lots")
+                st.dataframe(matches[['Lot ID', 'Quantity']], hide_index=True)
         else:
-            st.error(f"SKU '{sku_scan}' not found in Master List.")
+            st.error(f"SKU {sku_scan} not found.")
 
-    # --- 4. THE LIVE LOG (Show what we've done) ---
-    if st.session_state.build_records:
+    # --- THE LIVE BUILD LOG ---
+    if st.session_state.build_log:
         st.divider()
-        st.subheader("📋 Session Build Log")
-        st.table(pd.DataFrame(st.session_state.build_records))
+        st.subheader("📋 Items in Current Build")
+        st.table(pd.DataFrame(st.session_state.build_log))
