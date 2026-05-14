@@ -70,32 +70,56 @@ else:
             df_clean['Qty'] = pd.to_numeric(df_clean['Qty'], errors='coerce').fillna(0)
             df_final = df_clean[df_clean['Qty'] > 0].copy()
             
-            # --- UPDATED DROPDOWN DISPLAY ---
-            # We create a temporary column that combines Name and Qty for the dropdown
-            df_final['Display_Name'] = df_final.apply(lambda x: f"{x['Name']} (Target: {x['Qty']} oz)", axis=1)
-            display_options = df_final['Display_Name'].unique()
+            batch_options = df_final['Name'].unique()
             
-            if len(display_options) == 0:
+            if len(batch_options) == 0:
                 st.warning(f"No active batches found on {selected_tab}.")
             else:
-                selected_display = st.selectbox("Select Assigned Batch", display_options)
+                selected_batch = st.selectbox("Select Assigned Batch", batch_options)
                 
-                # Get the real data back from the selection
-                batch_data = df_final[df_final['Display_Name'] == selected_display].iloc[0]
+                batch_data = df_final[df_final['Name'] == selected_batch].iloc[0]
                 name_str = str(batch_data['Name']).strip()
                 full_code = name_str.split()[0]
-                target_qty = float(batch_data['Qty'])
+                bottles_to_make = float(batch_data['Qty'])
                 
+                # --- CONVERSION LOGIC ---
+                # 1ml = 0.033814 oz
+                # 10ml = 0.33814 oz per bottle
+                # 30ml = 1.01442 oz per bottle
+                
+                size_prefix = full_code[0]
+                if size_prefix == '1': # 10ml
+                    oz_per_unit = 0.33814
+                    unit_label = "10ml"
+                elif size_prefix == '3': # 30ml
+                    oz_per_unit = 1.01442
+                    unit_label = "30ml"
+                elif size_prefix == '4': # 4oz
+                    oz_per_unit = 4.0
+                    unit_label = "4oz"
+                else:
+                    oz_per_unit = 1.0 # Fallback
+                    unit_label = "Unknown"
+
+                target_qty_oz = round(bottles_to_make * oz_per_unit, 4)
                 required_base_id = full_code[1:] if len(full_code) >= 5 else full_code
                 
                 # --- DASHBOARD ---
                 st.divider()
-                current_total = sum(item['Used (oz)'] for item in st.session_state.current_build)
-                remaining = round(target_qty - current_total, 4)
                 
-                c_t, c_s = st.columns(2)
-                c_t.metric("🎯 Target Weight", f"{target_qty} oz")
-                c_s.metric("⚖️ Remaining to Pour", f"{remaining} oz", delta=f"-{current_total} oz")
+                # Three columns for better clarity
+                col_info1, col_info2, col_info3 = st.columns(3)
+                col_info1.metric("📦 Units to Make", f"{int(bottles_to_make)} bottles")
+                col_info2.metric("📏 Unit Size", unit_label)
+                col_info3.metric("🎯 Total Oz to Pour", f"{target_qty_oz} oz")
+
+                st.divider()
+                current_total = sum(item['Used (oz)'] for item in st.session_state.current_build)
+                remaining = round(target_qty_oz - current_total, 4)
+                
+                c_left, c_right = st.columns(2)
+                c_left.metric("⚖️ Remaining to Pour", f"{remaining} oz")
+                c_right.metric("🧪 Already Poured", f"{current_total} oz")
 
                 st.warning(f"🛡️ **Safety Lock:** Scan Base ID: **{required_base_id}**")
 
@@ -121,7 +145,7 @@ else:
                                     st.session_state.current_build.append({
                                         'Line': selected_tab,
                                         'Batch': full_code,
-                                        'Product': name_str, # Using the original clean name
+                                        'Product': name_str,
                                         'Base ID': required_base_id,
                                         'Lot ID': sel_lot,
                                         'Used (oz)': round(w_before - w_after, 4),
