@@ -70,20 +70,25 @@ else:
             df_clean['Qty'] = pd.to_numeric(df_clean['Qty'], errors='coerce').fillna(0)
             df_final = df_clean[df_clean['Qty'] > 0].copy()
             
-            batch_options = df_final['Name'].unique()
+            # --- UPDATED DROPDOWN DISPLAY ---
+            # We create a temporary column that combines Name and Qty for the dropdown
+            df_final['Display_Name'] = df_final.apply(lambda x: f"{x['Name']} (Target: {x['Qty']} oz)", axis=1)
+            display_options = df_final['Display_Name'].unique()
             
-            if len(batch_options) == 0:
+            if len(display_options) == 0:
                 st.warning(f"No active batches found on {selected_tab}.")
             else:
-                selected_batch = st.selectbox("Select Assigned Batch", batch_options)
-                batch_data = df_final[df_final['Name'] == selected_batch].iloc[0]
+                selected_display = st.selectbox("Select Assigned Batch", display_options)
+                
+                # Get the real data back from the selection
+                batch_data = df_final[df_final['Display_Name'] == selected_display].iloc[0]
                 name_str = str(batch_data['Name']).strip()
                 full_code = name_str.split()[0]
                 target_qty = float(batch_data['Qty'])
                 
                 required_base_id = full_code[1:] if len(full_code) >= 5 else full_code
                 
-                # --- DASHBOARD (UPDATED TO OZ) ---
+                # --- DASHBOARD ---
                 st.divider()
                 current_total = sum(item['Used (oz)'] for item in st.session_state.current_build)
                 remaining = round(target_qty - current_total, 4)
@@ -116,7 +121,7 @@ else:
                                     st.session_state.current_build.append({
                                         'Line': selected_tab,
                                         'Batch': full_code,
-                                        'Product': selected_batch,
+                                        'Product': name_str, # Using the original clean name
                                         'Base ID': required_base_id,
                                         'Lot ID': sel_lot,
                                         'Used (oz)': round(w_before - w_after, 4),
