@@ -27,7 +27,6 @@ if 'user_name' not in st.session_state:
     st.session_state.user_name = ""
 if 'scale_weight' not in st.session_state:
     st.session_state.scale_weight = 0.0
-# INITIALIZE SCALE SETTINGS HERE TO PREVENT ATTRIBUTE ERRORS
 if 'scale_settings' not in st.session_state:
     st.session_state.scale_settings = {"vid": None, "pid": None}
 
@@ -57,7 +56,7 @@ with st.sidebar:
     
     st.divider()
 
-    # --- SCALE HARDWARE CONFIGURATION (HID DEEP SEARCH) ---
+    # --- SCALE HARDWARE CONFIGURATION ---
     st.header("⚖️ Scale Settings")
     
     SCALE_PROFILES = {
@@ -80,7 +79,6 @@ with st.sidebar:
                 target_vid = st.session_state.scale_settings["vid"]
                 target_pid = st.session_state.scale_settings["pid"]
                 
-                # Scan all devices to find the specific motherboard path
                 all_devices = hid.enumerate()
                 device_info = next((d for d in all_devices if d['vendor_id'] == target_vid and d['product_id'] == target_pid), None)
                 
@@ -88,16 +86,17 @@ with st.sidebar:
                     device = hid.device()
                     device.open_path(device_info['path'])
                     
-                    # Read loop to clear buffer and handle report logic
+                    # Stamps.com scales need several reads to get latest stable data
                     report = None
                     for _ in range(15):
                         report = device.read(6)
                     
                     if report and len(report) >= 5:
-                        # Stamps.com: report[4] is weight, report[3] is scale factor
-                        raw_w = report[4]
-                        scaling_byte = report[3]
+                        # Logic for 16-bit weight values (Standard HID)
+                        raw_w = report[4] + (report[5] << 8 if len(report) > 5 else 0)
                         
+                        # Scaling factor logic (Byte 3 determines decimal placement)
+                        scaling_byte = report[3] if len(report) > 3 else 0
                         if scaling_byte > 128:
                             scaling_factor = scaling_byte - 256
                         else:
@@ -107,13 +106,13 @@ with st.sidebar:
                         st.toast(f"✅ Captured: {st.session_state.scale_weight} oz")
                     
                     device.close()
-                    st.rerun() # Refresh to update the main UI weight input
+                    st.rerun() 
                 else:
                     st.sidebar.error(f"Scale Not Detected (Scanned {len(all_devices)} devices)")
 
             except Exception as e:
                 st.sidebar.error(f"Hardware Lock: {e}")
-                st.info("💡 TIP: Unplug/Re-plug USB and ensure no other scale apps are open.")
+                st.info("💡 TIP: Ensure no other scripts (like check_scale.py) are running.")
 
     st.divider()
     st.header("📂 Data Center")
@@ -225,7 +224,7 @@ else:
 
                         w_col1, w_col2 = st.columns(2)
                         w_before = w_col1.number_input("Weight BEFORE", value=initial_w)
-                        # AUTO-POPULATED BY READ SCALE BUTTON
+                        # AUTO-POPULATED AFTER PRESSING READ SCALE
                         w_after = w_col2.number_input("Weight AFTER", value=st.session_state.scale_weight)
                         
                         actual_used = round(w_before - w_after, 4)
@@ -269,7 +268,6 @@ else:
                                     })
                                     st.rerun()
 
-                        # --- VERIFICATION OVERLAY ---
                         if st.session_state.get('show_confirm', False):
                             st.divider()
                             with st.container(border=True):
