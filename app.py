@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import time
 import random
-import hid  # Required for HID scales
+import hid  # Ensure 'hidapi' is in your requirements.txt
 
 # --- 1. USER DATABASE ---
 USER_DB = {
@@ -54,7 +54,7 @@ with st.sidebar:
     
     st.divider()
 
-    # --- SCALE HARDWARE CONFIGURATION (HID UPDATED) ---
+    # --- SCALE HARDWARE CONFIGURATION ---
     st.header("⚖️ Scale Settings")
     
     SCALE_PROFILES = {
@@ -71,20 +71,37 @@ with st.sidebar:
         "pid": SCALE_PROFILES[selected_model]["pid"]
     }
 
-    # HID Live Feed Button
+    # HID Live Feed Logic
     if st.session_state.scale_settings["vid"]:
-        if st.button("🔄 Read Scale"):
+        if st.button("🔄 Read Scale", use_container_width=True):
             try:
                 device = hid.device()
                 device.open(st.session_state.scale_settings["vid"], st.session_state.scale_settings["pid"])
-                report = device.read(64)
-                # Standard HID Scale Logic: Byte 4 is the weight
-                raw_weight = report[4]
-                # Adjust for negative/zero units if necessary
-                st.session_state.scale_weight = float(raw_weight)
+                
+                # Read multiple times to clear buffer and get latest data
+                report = None
+                for _ in range(5):
+                    report = device.read(6)
+                
+                if report:
+                    raw_weight = report[4] + (report[5] << 8) if len(report) > 5 else report[4]
+                    
+                    # Stamps.com scales often use byte 2 for scaling/units
+                    # This logic handles standard USB HID scale factors
+                    scaling_byte = report[3] if len(report) > 3 else 0
+                    if scaling_byte > 128:
+                        scaling_factor = scaling_byte - 256
+                    else:
+                        scaling_factor = scaling_byte
+                    
+                    # Calculate final weight
+                    st.session_state.scale_weight = round(float(raw_weight) * (10 ** scaling_factor), 4)
+                    st.toast(f"Scale Read: {st.session_state.scale_weight} oz")
+                
                 device.close()
             except Exception as e:
                 st.sidebar.error(f"Scale Error: {e}")
+                st.info("Check USB connection or close other apps using the scale.")
 
     st.divider()
     st.header("📂 Data Center")
@@ -196,7 +213,6 @@ else:
                             initial_w = float(active['Quantity'])
 
                         w_col1, w_col2 = st.columns(2)
-                        # Now uses Scale Weight as the default for After
                         w_before = w_col1.number_input("Weight BEFORE", value=initial_w)
                         w_after = w_col2.number_input("Weight AFTER", value=st.session_state.scale_weight)
                         
@@ -241,7 +257,7 @@ else:
                                     })
                                     st.rerun()
 
-                        # --- POP-UP VERIFICATION WINDOW ---
+                        # --- LOUD POP-UP VERIFICATION ---
                         if st.session_state.get('show_confirm', False):
                             st.divider()
                             with st.container(border=True):
