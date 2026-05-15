@@ -54,54 +54,44 @@ with st.sidebar:
     
     st.divider()
 
-    # --- SCALE HARDWARE CONFIGURATION ---
-    st.header("⚖️ Scale Settings")
-    
-    SCALE_PROFILES = {
-        "Stamps.com 5lb (HID)": {"vid": 0x2474, "pid": 0x550},
-        "DYMO M25 (HID)": {"vid": 0x0922, "pid": 0x8003},
-        "Manual Entry Only": {"vid": None, "pid": None}
-    }
-
-    selected_model = st.selectbox("Select Station Scale", list(SCALE_PROFILES.keys()))
-    
-    # Save selection to session state
-    st.session_state.scale_settings = {
-        "vid": SCALE_PROFILES[selected_model]["vid"],
-        "pid": SCALE_PROFILES[selected_model]["pid"]
-    }
-
-    # HID Live Feed Logic
-    if st.session_state.scale_settings["vid"]:
-        if st.button("🔄 Read Scale", use_container_width=True):
+    if st.button("🔄 Read Scale", use_container_width=True):
             try:
-                device = hid.device()
-                device.open(st.session_state.scale_settings["vid"], st.session_state.scale_settings["pid"])
+                # 1. Find all devices that match our scale
+                target_vid = st.session_state.scale_settings["vid"]
+                target_pid = st.session_state.scale_settings["pid"]
                 
-                # Read multiple times to clear buffer and get latest data
-                report = None
-                for _ in range(5):
-                    report = device.read(6)
+                device_info = None
+                for d in hid.enumerate():
+                    if d['vendor_id'] == target_vid and d['product_id'] == target_pid:
+                        device_info = d
+                        break
                 
-                if report:
-                    raw_weight = report[4] + (report[5] << 8) if len(report) > 5 else report[4]
+                if device_info:
+                    device = hid.device()
+                    # 2. Open by PATH instead of ID (More reliable on Windows)
+                    device.open_path(device_info['path'])
                     
-                    # Stamps.com scales often use byte 2 for scaling/units
-                    # This logic handles standard USB HID scale factors
-                    scaling_byte = report[3] if len(report) > 3 else 0
-                    if scaling_byte > 128:
-                        scaling_factor = scaling_byte - 256
-                    else:
-                        scaling_factor = scaling_byte
+                    # 3. Read several times to get through the data buffer
+                    report = None
+                    for _ in range(15):
+                        report = device.read(6)
                     
-                    # Calculate final weight
-                    st.session_state.scale_weight = round(float(raw_weight) * (10 ** scaling_factor), 4)
-                    st.toast(f"Scale Read: {st.session_state.scale_weight} oz")
-                
-                device.close()
+                    if report:
+                        # Stamps.com logic
+                        raw_w = report[4]
+                        scale_factor = report[3]
+                        if scale_factor > 128: scale_factor -= 256
+                        
+                        st.session_state.scale_weight = round(float(raw_w) * (10 ** scale_factor), 4)
+                        st.toast(f"Success! {st.session_state.scale_weight} oz captured.")
+                    
+                    device.close()
+                else:
+                    st.sidebar.error("Scale not found. Is it plugged in?")
+                    
             except Exception as e:
-                st.sidebar.error(f"Scale Error: {e}")
-                st.info("Check USB connection or close other apps using the scale.")
+                st.sidebar.error(f"Hardware Lock: {e}")
+                st.info("💡 Pro-Tip: Unplug the USB, wait 3 seconds, and plug it back in. This often clears the 'Open Failed' error.")
 
     st.divider()
     st.header("📂 Data Center")
