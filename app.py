@@ -27,6 +27,8 @@ if 'user_name' not in st.session_state:
     st.session_state.user_name = ""
 if 'scale_weight' not in st.session_state:
     st.session_state.scale_weight = 0.0
+if 'scale_settings' not in st.session_state:
+    st.session_state.scale_settings = {"vid": None, "pid": None}
 
 st.set_page_config(page_title="Flavor Build", layout="wide")
 
@@ -54,9 +56,28 @@ with st.sidebar:
     
     st.divider()
 
-    if st.button("🔄 Read Scale", use_container_width=True):
+    # --- SCALE HARDWARE CONFIGURATION ---
+    st.header("⚖️ Scale Settings")
+    
+    # RESTORED DROPDOWN DATA
+    SCALE_PROFILES = {
+        "Manual Entry Only": {"vid": None, "pid": None},
+        "Stamps.com 5lb (HID)": {"vid": 0x2474, "pid": 0x550},
+        "DYMO M25 (HID)": {"vid": 0x0922, "pid": 0x8003}
+    }
+
+    # RESTORED DROPDOWN MENU
+    selected_model = st.selectbox("Select Station Scale", list(SCALE_PROFILES.keys()))
+    
+    st.session_state.scale_settings = {
+        "vid": SCALE_PROFILES[selected_model]["vid"],
+        "pid": SCALE_PROFILES[selected_model]["pid"]
+    }
+
+    if st.session_state.scale_settings["vid"]:
+        st.caption(f"Scale Active: {selected_model}")
+        if st.button("🔄 Read Scale", use_container_width=True):
             try:
-                # 1. Find all devices that match our scale
                 target_vid = st.session_state.scale_settings["vid"]
                 target_pid = st.session_state.scale_settings["pid"]
                 
@@ -68,30 +89,27 @@ with st.sidebar:
                 
                 if device_info:
                     device = hid.device()
-                    # 2. Open by PATH instead of ID (More reliable on Windows)
                     device.open_path(device_info['path'])
                     
-                    # 3. Read several times to get through the data buffer
                     report = None
                     for _ in range(15):
                         report = device.read(6)
                     
                     if report:
-                        # Stamps.com logic
                         raw_w = report[4]
-                        scale_factor = report[3]
-                        if scale_factor > 128: scale_factor -= 256
+                        scaling_byte = report[3]
+                        if scaling_byte > 128: scaling_factor = scaling_byte - 256
+                        else: scaling_factor = scaling_byte
                         
-                        st.session_state.scale_weight = round(float(raw_w) * (10 ** scale_factor), 4)
-                        st.toast(f"Success! {st.session_state.scale_weight} oz captured.")
+                        st.session_state.scale_weight = round(float(raw_w) * (10 ** scaling_factor), 4)
+                        st.toast(f"Captured: {st.session_state.scale_weight} oz")
                     
                     device.close()
                 else:
-                    st.sidebar.error("Scale not found. Is it plugged in?")
-                    
+                    st.sidebar.error("Scale not detected.")
+
             except Exception as e:
                 st.sidebar.error(f"Hardware Lock: {e}")
-                st.info("💡 Pro-Tip: Unplug the USB, wait 3 seconds, and plug it back in. This often clears the 'Open Failed' error.")
 
     st.divider()
     st.header("📂 Data Center")
@@ -151,8 +169,7 @@ else:
             selected_batch = st.selectbox("Select Assigned Batch", batch_options)
             batch_data = df_final[df_final['Name'] == selected_batch].iloc[0]
             
-            full_name = str(batch_data['Name']).strip()
-            full_code = full_name.split()[0]
+            full_code = str(batch_data['Name']).strip().split()[0]
             planned_qty = int(batch_data['Qty'])
             
             prefix = full_code[0]
@@ -247,7 +264,6 @@ else:
                                     })
                                     st.rerun()
 
-                        # --- LOUD POP-UP VERIFICATION ---
                         if st.session_state.get('show_confirm', False):
                             st.divider()
                             with st.container(border=True):
