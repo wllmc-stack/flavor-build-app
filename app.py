@@ -44,6 +44,30 @@ if not st.session_state.authenticated:
 
 # --- SIDEBAR ---
 with st.sidebar:
+    # --- SCALE HARDWARE CONFIGURATION ---
+st.header("⚖️ Scale Settings")
+
+# 1. Define Scale Profiles
+SCALE_PROFILES = {
+    "Standard Digital (9600)": {"baud": 9600, "cmd": "W\n"},
+    "Ohaus Defender (2400)": {"baud": 2400, "cmd": "P\n"},
+    "Mettler Toledo (MT-SICS)": {"baud": 9600, "cmd": "SI\n"}, # Send Immediate
+    "Manual Entry": {"baud": None, "cmd": None}
+}
+
+# 2. Dropdown for Selection
+selected_model = st.selectbox("Select Station Scale", list(SCALE_PROFILES.keys()))
+
+# 3. Port Selection (Detecting the USB connection)
+# On Windows this is usually 'COM3', 'COM4' etc. On Linux/Mac '/dev/ttyUSB0'
+port_input = st.text_input("USB Port (e.g., COM3 or /dev/ttyUSB0)", value="COM3")
+
+# Store settings in session state for the hardware to use
+st.session_state.scale_settings = {
+    "port": port_input,
+    "baud": SCALE_PROFILES[selected_model]["baud"],
+    "cmd": SCALE_PROFILES[selected_model]["cmd"]
+}
     st.success(f"✅ User: **{st.session_state.user_name}**")
     if st.button("Logout"):
         st.session_state.authenticated = False
