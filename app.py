@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import time
 import random
+import hid  # Required for HID scales
 
 # --- 1. USER DATABASE ---
 USER_DB = {
@@ -24,6 +25,8 @@ if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
 if 'user_name' not in st.session_state:
     st.session_state.user_name = ""
+if 'scale_weight' not in st.session_state:
+    st.session_state.scale_weight = 0.0
 
 st.set_page_config(page_title="Flavor Build", layout="wide")
 
@@ -51,25 +54,37 @@ with st.sidebar:
     
     st.divider()
 
-    # --- SCALE HARDWARE CONFIGURATION ---
+    # --- SCALE HARDWARE CONFIGURATION (HID UPDATED) ---
     st.header("⚖️ Scale Settings")
     
     SCALE_PROFILES = {
-        "Standard Digital (9600)": {"baud": 9600, "cmd": "W\n"},
-        "Ohaus Defender (2400)": {"baud": 2400, "cmd": "P\n"},
-        "Mettler Toledo (MT-SICS)": {"baud": 9600, "cmd": "SI\n"},
-        "Manual Entry": {"baud": None, "cmd": None}
+        "Stamps.com 5lb (HID)": {"vid": 0x2474, "pid": 0x550},
+        "DYMO M25 (HID)": {"vid": 0x0922, "pid": 0x8003},
+        "Manual Entry Only": {"vid": None, "pid": None}
     }
 
     selected_model = st.selectbox("Select Station Scale", list(SCALE_PROFILES.keys()))
-    port_input = st.text_input("USB Port", value="COM3")
     
     # Save selection to session state
     st.session_state.scale_settings = {
-        "port": port_input,
-        "baud": SCALE_PROFILES[selected_model]["baud"],
-        "cmd": SCALE_PROFILES[selected_model]["cmd"]
+        "vid": SCALE_PROFILES[selected_model]["vid"],
+        "pid": SCALE_PROFILES[selected_model]["pid"]
     }
+
+    # HID Live Feed Button
+    if st.session_state.scale_settings["vid"]:
+        if st.button("🔄 Read Scale"):
+            try:
+                device = hid.device()
+                device.open(st.session_state.scale_settings["vid"], st.session_state.scale_settings["pid"])
+                report = device.read(64)
+                # Standard HID Scale Logic: Byte 4 is the weight
+                raw_weight = report[4]
+                # Adjust for negative/zero units if necessary
+                st.session_state.scale_weight = float(raw_weight)
+                device.close()
+            except Exception as e:
+                st.sidebar.error(f"Scale Error: {e}")
 
     st.divider()
     st.header("📂 Data Center")
@@ -181,8 +196,9 @@ else:
                             initial_w = float(active['Quantity'])
 
                         w_col1, w_col2 = st.columns(2)
+                        # Now uses Scale Weight as the default for After
                         w_before = w_col1.number_input("Weight BEFORE", value=initial_w)
-                        w_after = w_col2.number_input("Weight AFTER", value=0.0)
+                        w_after = w_col2.number_input("Weight AFTER", value=st.session_state.scale_weight)
                         
                         actual_used = round(w_before - w_after, 4)
 
