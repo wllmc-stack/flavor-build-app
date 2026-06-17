@@ -254,7 +254,6 @@ with st.sidebar:
     if bd_file:
         st.session_state.breakdown_schedule_df = pd.ExcelFile(bd_file)
         
-    # --- MASTER END-OF-DAY EXPORT GENERATOR ENGINE ---
     st.divider()
     st.subheader("🏁 End of Shift Operations")
     if st.button("🔍 Compile Today's Sheet Rows"):
@@ -271,12 +270,9 @@ with st.sidebar:
                     st.sidebar.warning("No records logged under today's date in cloud.")
                 else:
                     st.sidebar.info(f"Found {len(df_today)} rows for today's export.")
-                    
                     df_today['Product ID to produce'] = df_today['Product ID to produce'].astype(str).str.replace("B", "").str.zfill(4)
                     df_today['Product ID to produce'] = "B" + df_today['Product ID to produce']
-                    
                     csv_export_bytes = df_today[EXPORT_COLUMNS].to_csv(index=False)
-                    
                     st.sidebar.download_button(
                         label="📥 DOWNLOAD DAILY IMPORT FILE (.CSV)",
                         data=csv_export_bytes,
@@ -469,27 +465,32 @@ with tab2:
             
             default_index = 0
             if bd_scan:
-                # Strip out common invisible Code128 symbology brackets
+                # 1. Strip common hidden brackets
                 clean_scan = bd_scan.replace("]C1", "").replace("]C0", "").strip()
                 
-                # --- PRECISION SCALPEL: ONLY STRIP 'WSG' OR 'G' FROM THE EXACT FRONT ---
-                if clean_scan.startswith("WSG"):
-                    scanned_sku = clean_scan[3:].strip()
-                elif clean_scan.startswith("G"):
-                    scanned_sku = clean_scan[1:].strip()
-                else:
-                    scanned_sku = clean_scan.strip()
+                # 2. Obliterate ANY remaining character that is not a number or letter
+                clean_scan = re.sub(r'[^A-Z0-9]', '', clean_scan)
                 
-                # Ensure it remains at least 4 characters long (e.g., '405' -> '0405')
+                # 3. Precision slice out the prefix
+                if clean_scan.startswith("WSG"):
+                    scanned_sku = clean_scan[3:]
+                elif clean_scan.startswith("G"):
+                    scanned_sku = clean_scan[1:]
+                else:
+                    scanned_sku = clean_scan
+                
+                # Pad to 4 digits just in case
                 scanned_sku = scanned_sku.zfill(4)
                 
-                # Match exactly by prefix plus the hyphen
+                # --- 🔴 DEBUG BANNER 🔴 ---
+                st.info(f"🕵️ **DEBUG VISION:** Raw='`{bd_scan}`' ➡️ Clean='`{clean_scan}`' ➡️ Target='`{scanned_sku}`'")
+                
                 matching_labels = [label for label in unique_labels if label.startswith(scanned_sku + " -")]
                 
                 if matching_labels:
                     default_index = unique_labels.index(matching_labels[0])
                 else:
-                    st.error(f"⚠️ App Parsed Base ID: `{scanned_sku}` (Raw scan was: `{bd_scan}`). \n\nThis ID is not currently registering in the Active Breakdown list. Ensure the Excel sheet shows a '1' in the Breakdown column for this item.")
+                    st.error(f"⚠️ App Parsed Base ID: `{scanned_sku}`. \n\nThis ID is not currently registering in the Active Breakdown list. Ensure the Excel sheet shows a '1' in the Breakdown column for this item.")
             
             selected_line = st.selectbox("Select Flavor Line to Process", unique_labels, index=default_index)
             
@@ -507,7 +508,6 @@ with tab2:
                     
                     col_inputs_1, col_inputs_2, col_inputs_3, col_inputs_4 = st.columns(4)
                     
-                    # Matches "G4054" for the Inventory Master Lookup 
                     lookup_gallon_id = f"G{bd_product_id}"
                     inv_matches = st.session_state.inventory_df[st.session_state.inventory_df['Product ID'] == lookup_gallon_id]
                     lot_list = list(inv_matches['Lot ID'].unique()) if not inv_matches.empty else []
