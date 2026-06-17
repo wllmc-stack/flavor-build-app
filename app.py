@@ -458,11 +458,7 @@ with tab2:
             bd_df = st.session_state.breakdown_schedule_df.parse("Paste Info")
             bd_df.columns = bd_df.columns.str.strip()
             
-            # --- THE FIX: AGGRESSIVE EXCEL FLOAT STRIPPING ---
-            # Forces 4054.0 to become 4054 before zfilling
             bd_df['Product ID'] = bd_df['Product ID'].astype(str).str.split('.').str[0].str.strip().str.zfill(4)
-            
-            # Forces 1.0 to become 1 so it successfully matches the active list
             bd_df['Breakdown_Clean'] = bd_df['Breakdown'].astype(str).str.split('.').str[0].str.strip()
             
             active_breakdowns = bd_df[bd_df['Breakdown_Clean'] == '1'].copy()
@@ -473,24 +469,26 @@ with tab2:
             
             default_index = 0
             if bd_scan:
-                # Strip out common invisible Code128 symbology brackets just in case
+                # Strip out common invisible Code128 symbology brackets
                 clean_scan = bd_scan.replace("]C1", "").replace("]C0", "").strip()
                 
-                if "WSG" in clean_scan:
-                    scanned_sku = clean_scan.split("WSG")[-1].strip().zfill(4)
-                elif "G" in clean_scan:
-                    scanned_sku = clean_scan.split("G")[-1].strip().zfill(4)
+                # --- PRECISION SCALPEL: ONLY STRIP 'WSG' OR 'G' FROM THE EXACT FRONT ---
+                if clean_scan.startswith("WSG"):
+                    scanned_sku = clean_scan[3:].strip()
+                elif clean_scan.startswith("G"):
+                    scanned_sku = clean_scan[1:].strip()
                 else:
-                    # Final fallback: Strip ALL letters, keep only numbers
-                    scanned_sku = ''.join(filter(str.isdigit, clean_scan)).zfill(4) if any(c.isdigit() for c in clean_scan) else clean_scan.zfill(4)
+                    scanned_sku = clean_scan.strip()
                 
-                # Match exactly by prefix plus the hyphen to avoid partial match bugs (e.g. 405 matching 4054)
+                # Ensure it remains at least 4 characters long (e.g., '405' -> '0405')
+                scanned_sku = scanned_sku.zfill(4)
+                
+                # Match exactly by prefix plus the hyphen
                 matching_labels = [label for label in unique_labels if label.startswith(scanned_sku + " -")]
                 
                 if matching_labels:
                     default_index = unique_labels.index(matching_labels[0])
                 else:
-                    # UPDATED ERROR MESSAGE: Will now tell you exactly what it parsed to help us troubleshoot
                     st.error(f"⚠️ App Parsed Base ID: `{scanned_sku}` (Raw scan was: `{bd_scan}`). \n\nThis ID is not currently registering in the Active Breakdown list. Ensure the Excel sheet shows a '1' in the Breakdown column for this item.")
             
             selected_line = st.selectbox("Select Flavor Line to Process", unique_labels, index=default_index)
