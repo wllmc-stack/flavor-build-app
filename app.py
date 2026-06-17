@@ -11,6 +11,7 @@ import random
 from datetime import datetime
 import requests
 import os
+import re
 
 # Windows Local Printing & Barcode Infrastructure Imports
 import win32print
@@ -456,30 +457,41 @@ with tab2:
         try:
             bd_df = st.session_state.breakdown_schedule_df.parse("Paste Info")
             bd_df.columns = bd_df.columns.str.strip()
-            bd_df['Product ID'] = bd_df['Product ID'].astype(str).str.strip().str.zfill(4)
             
-            active_breakdowns = bd_df[bd_df['Breakdown'].astype(str) == '1'].copy()
-            active_breakdowns['Selector_Label'] = active_breakdowns['Product ID'] + " - " + active_breakdowns['Description']
+            # --- THE FIX: AGGRESSIVE EXCEL FLOAT STRIPPING ---
+            # Forces 4054.0 to become 4054 before zfilling
+            bd_df['Product ID'] = bd_df['Product ID'].astype(str).str.split('.').str[0].str.strip().str.zfill(4)
+            
+            # Forces 1.0 to become 1 so it successfully matches the active list
+            bd_df['Breakdown_Clean'] = bd_df['Breakdown'].astype(str).str.split('.').str[0].str.strip()
+            
+            active_breakdowns = bd_df[bd_df['Breakdown_Clean'] == '1'].copy()
+            active_breakdowns['Selector_Label'] = active_breakdowns['Product ID'] + " - " + active_breakdowns['Description'].astype(str)
             unique_labels = list(active_breakdowns['Selector_Label'].unique())
             
             bd_scan = st.text_input("Scan Source Gallon Barcode", key="bd_gallon_scan_input").strip().upper()
             
             default_index = 0
             if bd_scan:
-                # Bulletproof scanner extraction: hunt for WSG or G anywhere to bypass hidden chars
-                if "WSG" in bd_scan:
-                    scanned_sku = bd_scan.split("WSG")[-1].zfill(4)
-                elif "G" in bd_scan:
-                    scanned_sku = bd_scan.split("G")[-1].zfill(4)
-                else:
-                    scanned_sku = ''.join(filter(str.isdigit, bd_scan)).zfill(4) if any(c.isdigit() for c in bd_scan) else bd_scan.zfill(4)
+                # Strip out common invisible Code128 symbology brackets just in case
+                clean_scan = bd_scan.replace("]C1", "").replace("]C0", "").strip()
                 
-                matching_labels = [label for label in unique_labels if label.startswith(scanned_sku)]
+                if "WSG" in clean_scan:
+                    scanned_sku = clean_scan.split("WSG")[-1].strip().zfill(4)
+                elif "G" in clean_scan:
+                    scanned_sku = clean_scan.split("G")[-1].strip().zfill(4)
+                else:
+                    # Final fallback: Strip ALL letters, keep only numbers
+                    scanned_sku = ''.join(filter(str.isdigit, clean_scan)).zfill(4) if any(c.isdigit() for c in clean_scan) else clean_scan.zfill(4)
+                
+                # Match exactly by prefix plus the hyphen to avoid partial match bugs (e.g. 405 matching 4054)
+                matching_labels = [label for label in unique_labels if label.startswith(scanned_sku + " -")]
                 
                 if matching_labels:
                     default_index = unique_labels.index(matching_labels[0])
                 else:
-                    st.error(f"⚠️ SKU {scanned_sku} was scanned, but it is not marked for breakdown on today's report. Please verify your paperwork.")
+                    # UPDATED ERROR MESSAGE: Will now tell you exactly what it parsed to help us troubleshoot
+                    st.error(f"⚠️ App Parsed Base ID: `{scanned_sku}` (Raw scan was: `{bd_scan}`). \n\nThis ID is not currently registering in the Active Breakdown list. Ensure the Excel sheet shows a '1' in the Breakdown column for this item.")
             
             selected_line = st.selectbox("Select Flavor Line to Process", unique_labels, index=default_index)
             
@@ -497,7 +509,7 @@ with tab2:
                     
                     col_inputs_1, col_inputs_2, col_inputs_3, col_inputs_4 = st.columns(4)
                     
-                    # Reverted to match the "G" format of the Master Inventory upload
+                    # Matches "G4054" for the Inventory Master Lookup 
                     lookup_gallon_id = f"G{bd_product_id}"
                     inv_matches = st.session_state.inventory_df[st.session_state.inventory_df['Product ID'] == lookup_gallon_id]
                     lot_list = list(inv_matches['Lot ID'].unique()) if not inv_matches.empty else []
