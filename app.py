@@ -122,11 +122,9 @@ def cell_capture_callback(w_key, bottle_index):
 # --- UNIFIED DIRECT HARDWARE BYPASS PRINT ENGINE ---
 def execute_label_print(target_printer, barcode_text, flavor_name, weight_oz):
     try:
-        # 1. Expand canvas width to 640 (2-1/8") to allow for the additional rightward movement
         label_bitmap = Image.new('RGB', (640, 200), color=(255, 255, 255))
         canvas = ImageDraw.Draw(label_bitmap)
         
-        # Load upscaled bold typography sets
         try:
             font_flavor = ImageFont.truetype("arial.ttf", 32)  
             font_serial = ImageFont.truetype("arial.ttf", 34)  
@@ -134,42 +132,31 @@ def execute_label_print(target_printer, barcode_text, flavor_name, weight_oz):
             font_flavor = ImageFont.load_default()
             font_serial = ImageFont.load_default()
         
-        # Shift the master alignment midpoint rightward by an extra 1/4 inch (Now targeted at X=350)
         midpoint_x = 350
         
-        # Draw Top Line: Centers the flavor name cleanly over the adjusted midpoint coordinate
         clean_flavor_string = str(flavor_name).strip().upper()
         canvas.text((midpoint_x, 10), clean_flavor_string[:26], fill=(0, 0, 0), font=font_flavor, anchor="mt")
         
-        # 2. Centered Barcode Graphic Layer
         try:
             code128_engine = barcode.get('code128', str(barcode_text), writer=ImageWriter())
             barcode_raw_img = code128_engine.render(writer_options={"write_text": False, "quiet_zone": 1.0, "module_height": 5.0})
-            
             barcode_resized = barcode_raw_img.resize((320, 55))
-            # Centers the barcode graphic perfectly along the new midpoint axis
             label_bitmap.paste(barcode_resized, (midpoint_x - 160, 52))
         except Exception as barcode_err:
             canvas.text((midpoint_x, 60), "[BARCODE ERROR]", fill=(0, 0, 0), font=font_serial, anchor="mt")
         
-        # 3. Draw Bottom Line: Centers the serial line code matching top symmetry
         canvas.text((midpoint_x, 125), f"SERIAL: {barcode_text}", fill=(0, 0, 0), font=font_serial, anchor="mt")
-        
-        # 4. Rotation Step: Twist 90 degrees to align portrait roll feed
         final_printed_bitmap = label_bitmap.rotate(90, expand=True)
         
-        # 5. Connect and stream layout out to Windows GDI Subsystem
         dc = win32ui.CreateDC()
         dc.CreatePrinterDC(str(target_printer))
         
         dc.StartDoc(f"Container Tracking - {barcode_text}")
         dc.StartPage()
         
-        # Grab raw device dimensions reported by the printer hardware
         raw_width = dc.GetDeviceCaps(win32con.HORZRES)
         raw_height = dc.GetDeviceCaps(win32con.VERTRES)
         
-        # Aggressive printing constraint window adjusted for the longer canvas length
         start_x = int(raw_width * 0.08)
         start_y = int(raw_height * 0.08)
         end_x = int(raw_width * 0.92)
@@ -184,7 +171,6 @@ def execute_label_print(target_printer, barcode_text, flavor_name, weight_oz):
         return True
             
     except Exception as e:
-        # Dynamic fallback image backup if the assigned printer target is offline
         try:
             label_bitmap = Image.new('RGB', (500, 300), color=(255, 255, 255))
             canvas = ImageDraw.Draw(label_bitmap)
@@ -476,12 +462,18 @@ with tab2:
             active_breakdowns['Selector_Label'] = active_breakdowns['Product ID'] + " - " + active_breakdowns['Description']
             unique_labels = list(active_breakdowns['Selector_Label'].unique())
             
-            bd_scan = st.text_input("Scan Source Gallon Barcode", key="bd_gallon_scan_input").strip()
+            bd_scan = st.text_input("Scan Source Gallon Barcode", key="bd_gallon_scan_input").strip().upper()
             
             default_index = 0
             if bd_scan:
-                # Updated to slice 3 characters for the "WSG" prefix
-                scanned_sku = bd_scan[3:].zfill(4) if bd_scan.upper().startswith("WSG") else bd_scan.zfill(4)
+                # Bulletproof scanner extraction: hunt for WSG or G anywhere to bypass hidden chars
+                if "WSG" in bd_scan:
+                    scanned_sku = bd_scan.split("WSG")[-1].zfill(4)
+                elif "G" in bd_scan:
+                    scanned_sku = bd_scan.split("G")[-1].zfill(4)
+                else:
+                    scanned_sku = ''.join(filter(str.isdigit, bd_scan)).zfill(4) if any(c.isdigit() for c in bd_scan) else bd_scan.zfill(4)
+                
                 matching_labels = [label for label in unique_labels if label.startswith(scanned_sku)]
                 
                 if matching_labels:
@@ -503,11 +495,10 @@ with tab2:
                     c_desc.metric("Flavor Description", bd_description)
                     c_count.metric("Expected Shelf Inventory (Start16)", bd_start16)
                     
-                    # 4-Column Layout to handle the new dynamic configuration inputs cleanly
                     col_inputs_1, col_inputs_2, col_inputs_3, col_inputs_4 = st.columns(4)
                     
-                    # Updated lookup logic to match the WSG prefix in the inventory list
-                    lookup_gallon_id = f"WSG{bd_product_id}"
+                    # Reverted to match the "G" format of the Master Inventory upload
+                    lookup_gallon_id = f"G{bd_product_id}"
                     inv_matches = st.session_state.inventory_df[st.session_state.inventory_df['Product ID'] == lookup_gallon_id]
                     lot_list = list(inv_matches['Lot ID'].unique()) if not inv_matches.empty else []
                     
@@ -524,14 +515,12 @@ with tab2:
                 
                 st.subheader("📋 Generated Label Manifest Preview")
                 
-                # Dynamic Cache System: Automatically handles regenerating serials based on user numeric input
                 cache_key = f"bd_serials_{bd_product_id}"
                 if cache_key not in st.session_state or len(st.session_state[cache_key]) != num_bottles:
                     st.session_state[cache_key] = [f"{bd_product_id}-{random.randint(100000, 999999)}" for _ in range(num_bottles)]
                 
                 active_serials = st.session_state[cache_key]
                 
-                # Build and display the clean, scale-free preview table
                 preview_data = [{"Bottle #": i+1, "Generated Barcode": serial, "Flavor": bd_description} for i, serial in enumerate(active_serials)]
                 st.dataframe(pd.DataFrame(preview_data), use_container_width=True, hide_index=True)
                 
@@ -560,23 +549,21 @@ with tab2:
                                 'Consume lot id': str(selected_bulk_lot),
                                 'Consume sublocation': 'Bottling', 
                                 'Consume product ID': serial, 
-                                'Consume quantity': 0.0, # Placeholder value until the accounting math update is applied
+                                'Consume quantity': 0.0,
                                 'Notes/Variance': f"BREAKDOWN BATCH | Source Gallons: {gallons_processed}"
                             })
 
-                        # Push to Hardware Print Queue
                         for item in st.session_state.breakdown_build:
                             execute_label_print(
                                 target_printer=selected_hardware_printer,
                                 barcode_text=item['Consume product ID'],
                                 flavor_name=bd_description,
-                                weight_oz=0.0 # Placeholder for printing layout compatibility
+                                weight_oz=0.0
                             )
                             
-                        # Push to Cloud Storage Ledger
                         if save_to_google_sheets(st.session_state.breakdown_build):
                             st.session_state.breakdown_build = []
-                            del st.session_state[cache_key] # Clear cache so fresh serials generate next time
+                            del st.session_state[cache_key] 
                             st.success(f"🚀 Successfully printed {num_bottles} labels and registered to Central Database.")
                             time.sleep(2.0)
                             st.rerun()
